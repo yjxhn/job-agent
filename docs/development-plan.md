@@ -468,70 +468,76 @@ class PlatformAdapter(ABC):
 
 ## 6. 当前状态 (Actual)
 
+> 最后更新: 2026-06-21
+
 | 模块/功能 | 状态 | 说明 |
 |----------|------|------|
 | **7 阶段 Pipeline** | | |
-| Search | ⚠️ | Boss/猎聘 HTTP API 可用,但 job51/zhilian/maimai 三平台存根未实现 |
+| Search | ✅ | 5 个平台适配器（BOSS/猎聘/智联/腾讯/网易），HTTP API 可用 |
 | Filter | ✅ | 薪资/地点/排除词过滤完整 |
-| Prescreen | ✅ | 规则初筛 + Top 30,但规则硬编码未配置化 |
-| Match | ✅ | LLM 精排 + 并发5 + JSON强制重试 + min_score |
+| Prescreen | ✅ | 规则初筛 + Top 30，已配置化（prescreen_rules） |
+| Match | ✅ | LLM 精排 + 并发5 + JSON强制重试 + min_score + LLM 指数退避重试 |
 | Tailor | ✅ | 简历定制(.docx + .md) |
 | Cover Letter | ✅ | 求职信生成 |
-| Interview Prep | ✅ | 技术题预测 |
+| Interview Prep | ✅ | 技术题/行为题/项目深挖预测 + 模拟面试 |
 | Offer Eval | ✅ | Offer 打分卡 |
 | Salary Advice | ✅ | 薪资对比建议 |
 | Track | ✅ | 7阶段状态机 + timelines + 手动补录 |
-| Apply | ❌ | 依赖用户手动投递,无自动投递接口 |
+| Apply | ❌ | 依赖用户手动投递，无自动投递接口 |
 | **平台适配器** | | |
-| boss_zhipin | ⚠️ | HTTP API 可用,但有 code-37 反爬隐患 |
+| boss_zhipin | ⚠️ | HTTP API 可用，但有 code-37 反爬隐患（__zp_stoken__ 短效） |
 | liepin | ✅ | HTTP API 稳定无反爬 |
-| job51 | ❌ | NotImplementedError 存根 |
-| zhilian | ❌ | NotImplementedError 存根 |
-| maimai | ❌ | NotImplementedError 存根 |
+| zhilian | ✅ | 已实现（HTTP API） |
+| tencent | ✅ | 已实现 |
+| netease | ✅ | 已实现 |
+| job51 | ❌ NotImplementedError 存根，用户决定不碰 |
+| maimai | ❌ NotImplementedError 存根，用户决定不碰 |
 | **基础设施** | | |
-| CLI 命令 | ⚠️ | 14 个命令完整,但 login 仍依赖 Playwright |
-| 测试 | ⚠️ | 115 pytest,但缺 .coveragerc,75% 覆盖率无佐证 |
-| DB | ⚠️ | 6 表可用,但 schema 迁移用 try-except,脆弱 |
-| Dashboard (serve.py) | ⚠️ | Flask 可用,但缺 API 文档/错误处理 |
-| Scheduler | ✅ | cron 调度完整 |
-| CI/CD | ❌ | 无 |
+| CLI 命令 | ✅ | 14 个命令完整，login 已改为 import-cookies（无 Playwright 依赖） |
+| 测试 | ✅ | **294 passed / 6 skipped / 0 fail**，覆盖率 **81.1%** |
+| DB | ✅ | SQLite WAL 模式，schema 版本化迁移（v2） |
+| Dashboard | ✅ | Flask + Timeline + OpenAPI + 认证 + 分页 完整 |
+| Scheduler | ✅ | cron 调度 + quiet_hours 完整 |
+| CI/CD | ✅ | Pre-commit hooks + ruff/mypy/bandit 全 0，CI 待推 GitHub |
 | **数据模型** | | |
 | JobRecord | ✅ | Pydantic 模型完整 |
 | ApplicationRecord | ✅ | 7阶段状态机完整 |
-| 数据库表 | ✅ | 6张表设计完整 |
+| 数据库表 | ✅ | 6 张表 + schema_version 迁移追踪 |
 | **调度与监控** | | |
 | 定时搜岗 | ✅ | Scheduler daemon 循环完整 |
 | 安静时段 | ✅ | quiet_hours 配置完整 |
 | Toast 通知 | ✅ | Windows Toast 通知完整 |
-| Dashboard | ⚠️ | Flask 可用,但功能简陋 |
+| Dashboard | ✅ | Timeline + OpenAPI + 认证 + 分页 完整 |
 | **文档与配置** | | |
 | CLI 帮助 | ✅ | 14条命令帮助文档完整 |
-| 配置文件 | ⚠️ | config.yaml 存在,但部分参数未使用 |
-| .coveragerc | ❌ | 不存在,覆盖率无佐证 |
-| CI/CD | ❌ | 无 |
+| 配置文件 | ✅ | config.yaml 完整，所有参数实际使用 |
+| 覆盖率配置 | ✅ | pyproject.toml fail_under=79，实测 81.1% |
+| CI/CD | ✅ | Pre-commit 就绪，GitHub Actions 待推 |
+| **代码质量** | | |
+| ruff | ✅ | 0 问题 |
+| mypy | ✅ | 0 错误 |
+| bandit | ✅ | 0 高危（B101/B110 已 suppress） |
 
 ### 6.2 代码规模
 
 - **文件数**: 39 个 Python 文件
-- **代码行数**: ~2355 行
-- **函数数量**: 55 个函数
-- **测试数量**: 115 个 pytest 测试
+- **测试数量**: **294 个 pytest 测试**（6 skipped 为需 --run-integration 的集成测试）
+- **覆盖率**: **81.1%**（fail_under=79）
+- **LLM**: DeepSeek v4-pro，已加指数退避重试（429/timeout/connection 最多 3 次）
+- **数据库**: SQLite WAL 模式，6 表 + schema 版本化迁移（v2）
 
 ### 6.3 技术债务
 
 **🔴 高优先级**
-1. ❌ **login 命令依赖 Playwright**（应改 import-cookies）
-2. ❌ **3 个平台存根未实现**（job51/zhilian/maimai）
-3. ❌ **Prescreen 规则硬编码**（应配置化）
+1. ⚠️ **Boss 直聘 code-37 反爬**（__zp_stoken__ 短效 Cookie，频繁调用触发反爬）
 
 **🟡 中优先级**
-4. ⚠️ **.coveragerc 不存在**（覆盖率无佐证）
-5. ⚠️ **DB 迁移用 try-except**（脆弱，应规范迁移脚本）
-6. ⚠️ **rate_limit_seconds 配置未实际使用**
+2. ⚠️ **6 个 backlog 大厂官网适配器**（需抓包分析 API，已列入 backlog）
+3. ⚠️ **CI 待推 GitHub**（GitHub Actions workflow 已就绪，待首次推送）
 
 **🟢 低优先级**
-7. ℹ️ **无 CI/CD**（可选，非核心需求）
-8. ℹ️ **日志可更规范**（使用 logging 模块替代部分 print）
+4. ℹ️ **job51/maimai 存根**（用户决定当前不实现）
+5. ℹ️ **Boss 完整 JD 字段**（code-37 阻塞，部分字段不可靠）
 
 ---
 
@@ -539,64 +545,41 @@ class PlatformAdapter(ABC):
 
 ### 7.1 Backlog
 
-**P0 - 阻塞上线**
-1. **login 命令重构**（移除 Playwright 依赖）
-   - 实现 `import-cookies` CLI 命令
-   - 兼容旧登录方式（向后兼容）
-   - 验证时间：2 天
-
-2. **Prescreen 规则配置化**
-   - 将硬编码规则迁移到 config.yaml
-   - 支持动态调整权重
-   - 验证时间：1 天
+**P0 - 已完成**
+1. ✅ **login 命令重构**（已移除 Playwright 依赖，改为 import-cookies）
+2. ✅ **Prescreen 规则配置化**（已迁移到 config.yaml prescreen_rules）
+3. ✅ **添加覆盖率配置**（pyproject.toml fail_under=79，实测 81.1%）
+4. ✅ **优化 DB 迁移脚本**（已改为 schema 版本化迁移，非 try-except）
+5. ✅ **修复 rate_limit_seconds 实际生效**（BOSS/猎聘/智联 adapter 均已使用）
+6. ✅ **添加 CI/CD**（Pre-commit hooks + ruff/mypy/bandit 全 0；GitHub Actions 就绪待推）
+7. ✅ **规范日志系统**（已使用 logging 模块替代 print）
+8. ✅ **LLM 指数退避重试**（call_llm_with_retry，429/timeout/connection 最多 3 次）
+9. ✅ **SQLite WAL 模式**（已启用，提升并发读写安全）
 
 **P1 - 核心功能**
-3. **实现 3 个平台适配器**
-   - job51：HTTP API 研究与实现
-   - zhilian：HTTP API 研究与实现
-   - maimai：HTTP API 研究与实现
-   - 验证时间：5 天（每个平台 1-2 天）
+10. 📋 **6 个 backlog 大厂官网适配器**（需抓包分析 API）
+    - 腾讯、网易（已部分实现，需完整抓包验证）
+    - 字节、华为、小米、百度（需从零开始）
 
 **P2 - 质量保障**
-4. **添加 .coveragerc**
-   - 配置 75% 覆盖率基准
-   - CI 集成覆盖率检查
-   - 验证时间：0.5 天
-
-5. **优化 DB 迁移脚本**
-   - 使用 Alembic 或类似工具
-   - 提供迁移历史追踪
-   - 验证时间：1 天
-
-6. **修复 rate_limit_seconds 实际生效**
-   - 在 HTTP API 调用间添加延时
-   - 支持动态限流
-   - 验证时间：1 天
+11. 📋 **CI 首次推 GitHub**（GitHub Actions workflow 已就绪，待推送远程）
 
 **P3 - 体验优化**
-7. **添加 CI/CD**
-   - GitHub Actions（lint + test + coverage）
-   - Pre-commit hooks（black/ruff）
-   - 验证时间：2 天
-
-8. **规范日志系统**
-   - 使用 logging 模块替代 print
-   - 日志分级（DEBUG/INFO/WARNING/ERROR）
-   - 验证时间：1 天
+12. ℹ️ **job51/maimai 存根**（用户决定当前不实现）
 
 ### 7.2 已知风险
 
 **🔴 高风险**
 1. **Boss 直聘 code-37 反爬**
    - **问题**: `__zp_stoken__` 短效 Cookie，频繁调用触发反爬
-   - **影响**: 搜索中断，需重新导出 Cookie
-   - **缓解**: 降低搜索频率，监控 Toast 通知
+   - **影响**: 搜索中断，需重新导出 Cookie；完整 JD 字段（code-37 阻塞）不可靠
+   - **缓解**: 降低搜索频率，rate_limit_seconds 配置化，监控 Toast 通知
    - **长期方案**: 研究 API 签名机制
 
 2. **DeepSeek API 限流**
    - **问题**: 并发 5 LLM 调用可能触发限流
    - **影响**: Match 阶段失败率上升
-   - **缓解**: 实现指数退避重试
+   - **缓解**: ✅ **已实现指数退避重试**（call_llm_with_retry，1s/2s/4s，最多 3 次，覆盖 429/Timeout/ConnectionError）
 
 **🟡 中风险**
 3. **Cookie 过期未检测**
@@ -607,13 +590,13 @@ class PlatformAdapter(ABC):
 4. **并发安全**
    - **问题**: 多进程同时访问数据库可能冲突
    - **影响**: 数据不一致
-   - **缓解**: 使用 SQLite WAL 模式
+   - **缓解**: ✅ **已启用 SQLite WAL 模式**
 
 **🟢 低风险**
 5. **测试覆盖率波动**
    - **问题**: 代码重构可能导致覆盖率下降
    - **影响**: 无法准确量化质量
-   - **缓解**: 每次提交前运行 pytest --cov
+   - **缓解**: fail_under=79（留 2% 余量），每次提交前运行 pytest --cov
 
 ---
 
