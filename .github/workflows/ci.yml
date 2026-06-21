@@ -33,7 +33,7 @@ jobs:
         run: python -m mypy agent_core --ignore-missing-imports
 
       - name: Security scan with bandit
-        run: python -m bandit -r agent_core -c pyproject.toml --exit-zero
+        run: python -m bandit -r agent_core -c pyproject.toml
 
       - name: Run tests
         run: python -m pytest -q

@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 def _make_job_id(platform: str, url: str) -> str:
-    return hashlib.md5(f"{platform}:{url}".encode()).hexdigest()[
-        :16
-    ]  # nosec B324 -- job ID, not security
+    return hashlib.md5(  # nosec B324 -- job ID, not security
+        f"{platform}:{url}".encode()
+    ).hexdigest()[:16]
 
 
 def _normalize_company(name: str, aliases: dict) -> str:
