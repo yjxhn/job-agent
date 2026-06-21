@@ -2,8 +2,8 @@
 
 import asyncio
 import json
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from agent_core.platforms.boss_zhipin import BossZhipinAdapter
 
@@ -11,7 +11,6 @@ from agent_core.platforms.boss_zhipin import BossZhipinAdapter
 # Test: anti-bot challenge (code 37) triggers _notify_anti_bot, NOT _notify_cookie_expired
 def test_code_37_triggers_anti_bot_not_expired(monkeypatch):
     from agent_core.platforms import boss_zhipin
-    from agent_core.notify import windows_toast as wt
 
     # Track which notify function was called
     anti_bot_called = []
@@ -25,11 +24,9 @@ def test_code_37_triggers_anti_bot_not_expired(monkeypatch):
         cookie_expired_called.append("Boss直聘")
 
     # Mock urlopen to return code 37 with challenge markers
-    fake_resp = json.dumps({
-        "code": 37,
-        "message": "x",
-        "zpData": {"seed": "s", "name": "n", "ts": 1}
-    }).encode()
+    fake_resp = json.dumps(
+        {"code": 37, "message": "x", "zpData": {"seed": "s", "name": "n", "ts": 1}}
+    ).encode()
 
     class FakeResp:
         def read(self):
@@ -52,7 +49,9 @@ def test_code_37_triggers_anti_bot_not_expired(monkeypatch):
     jobs = asyncio.run(adapter._search_keyword_api("AMR", "100010000", "wt2=x"))
 
     assert anti_bot_called == ["Boss直聘"], f"Expected anti-bot called, got {anti_bot_called}"
-    assert cookie_expired_called == [], f"Cookie expired should NOT be called, got {cookie_expired_called}"
+    assert (
+        cookie_expired_called == []
+    ), f"Cookie expired should NOT be called, got {cookie_expired_called}"
     assert jobs == [], "Should return empty list on anti-bot"
 
 
@@ -60,7 +59,6 @@ def test_code_37_triggers_anti_bot_not_expired(monkeypatch):
 @pytest.mark.skip(reason="Backoff sleep takes 300s, skip in CI")
 def test_code_37_backoff_sleeps():
     """Test: code-37 triggers _ANTI_BOT_BACKOFF_SECONDS (300s) backoff."""
-    from agent_core.platforms import boss_zhipin
 
     # Mock asyncio.sleep to track if backoff duration is used
     sleep_called_with = []
@@ -70,11 +68,9 @@ def test_code_37_backoff_sleeps():
             sleep_called_with.append(True)
 
     # Mock urlopen to return code 37
-    fake_resp = json.dumps({
-        "code": 37,
-        "message": "anti-bot challenge",
-        "zpData": {"seed": "s", "name": "n", "ts": 1}
-    }).encode()
+    fake_resp = json.dumps(
+        {"code": 37, "message": "anti-bot challenge", "zpData": {"seed": "s", "name": "n", "ts": 1}}
+    ).encode()
 
     class FakeResp:
         def read(self):
@@ -97,12 +93,13 @@ def test_code_37_backoff_sleeps():
     # This will trigger backoff and should sleep 300s
     try:
         asyncio.run(adapter._search_keyword_api("AMR", "100010000", "wt2=x", max_pages=1))
-    except Exception as e:
+    except Exception:
         # We expect the backoff to break after sleep
         pass
 
     # Wait a bit for the async sleep to complete if triggered
     import time
+
     time.sleep(0.1)
 
     assert sleep_called_with == [True], "Should have slept 300s on code-37 backoff"
@@ -122,11 +119,7 @@ def test_other_nonzero_triggers_cookie_expired(monkeypatch):
         cookie_expired_called.append("Boss直聘")
 
     # Mock urlopen to return code 1501 (auth error) without challenge markers
-    fake_resp = json.dumps({
-        "code": 1501,
-        "message": "login required",
-        "zpData": {}
-    }).encode()
+    fake_resp = json.dumps({"code": 1501, "message": "login required", "zpData": {}}).encode()
 
     class FakeResp:
         def read(self):
@@ -149,7 +142,9 @@ def test_other_nonzero_triggers_cookie_expired(monkeypatch):
     jobs = asyncio.run(adapter._search_keyword_api("AMR", "100010000", "wt2=x"))
 
     assert anti_bot_called == [], f"Anti-bot should NOT be called, got {anti_bot_called}"
-    assert cookie_expired_called == ["Boss直聘"], f"Expected cookie expired called, got {cookie_expired_called}"
+    assert cookie_expired_called == [
+        "Boss直聘"
+    ], f"Expected cookie expired called, got {cookie_expired_called}"
     assert jobs == [], "Should return empty list on auth error"
 
 
@@ -164,27 +159,33 @@ def test_rate_limit_seconds_used(monkeypatch):
         sleep_called_with.append(seconds)
 
     def create_fake_resp(page):
-        return json.dumps({
-            "code": 0,
-            "zpData": {"jobList": [{
-                "jobName": "AMR Engineer",
-                "brandName": "Test Corp",
-                "encryptJobId": "test001",
-                "cityName": "Suzhou",
-                "areaDistrict": "",
-                "businessDistrict": "",
-                "salaryDesc": "15-20K",
-                "jobExperience": "3-5年",
-                "jobDegree": "本科",
-                "skills": [],
-                "jobLabels": [],
-                "welfareList": [],
-                "brandIndustry": "",
-                "brandScaleName": "",
-                "securityId": "",
-                "lid": ""
-            }]}
-        }).encode()
+        return json.dumps(
+            {
+                "code": 0,
+                "zpData": {
+                    "jobList": [
+                        {
+                            "jobName": "AMR Engineer",
+                            "brandName": "Test Corp",
+                            "encryptJobId": "test001",
+                            "cityName": "Suzhou",
+                            "areaDistrict": "",
+                            "businessDistrict": "",
+                            "salaryDesc": "15-20K",
+                            "jobExperience": "3-5年",
+                            "jobDegree": "本科",
+                            "skills": [],
+                            "jobLabels": [],
+                            "welfareList": [],
+                            "brandIndustry": "",
+                            "brandScaleName": "",
+                            "securityId": "",
+                            "lid": "",
+                        }
+                    ]
+                },
+            }
+        ).encode()
 
     class FakeResp:
         def __init__(self, page):
@@ -224,27 +225,33 @@ def test_rate_limit_defaults(monkeypatch):
         sleep_called_with.append(seconds)
 
     def create_fake_resp(page):
-        return json.dumps({
-            "code": 0,
-            "zpData": {"jobList": [{
-                "jobName": "AMR Engineer",
-                "brandName": "Test Corp",
-                "encryptJobId": "test001",
-                "cityName": "Suzhou",
-                "areaDistrict": "",
-                "businessDistrict": "",
-                "salaryDesc": "15-20K",
-                "jobExperience": "3-5年",
-                "jobDegree": "本科",
-                "skills": [],
-                "jobLabels": [],
-                "welfareList": [],
-                "brandIndustry": "",
-                "brandScaleName": "",
-                "securityId": "",
-                "lid": ""
-            }]}
-        }).encode()
+        return json.dumps(
+            {
+                "code": 0,
+                "zpData": {
+                    "jobList": [
+                        {
+                            "jobName": "AMR Engineer",
+                            "brandName": "Test Corp",
+                            "encryptJobId": "test001",
+                            "cityName": "Suzhou",
+                            "areaDistrict": "",
+                            "businessDistrict": "",
+                            "salaryDesc": "15-20K",
+                            "jobExperience": "3-5年",
+                            "jobDegree": "本科",
+                            "skills": [],
+                            "jobLabels": [],
+                            "welfareList": [],
+                            "brandIndustry": "",
+                            "brandScaleName": "",
+                            "securityId": "",
+                            "lid": "",
+                        }
+                    ]
+                },
+            }
+        ).encode()
 
     class FakeResp:
         def __init__(self, page):

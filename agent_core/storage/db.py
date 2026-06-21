@@ -21,12 +21,14 @@ def get_db(db_path: str = "data/agent.db") -> sqlite3.Connection:
 
 
 def _ensure_schema_version_table(conn: sqlite3.Connection) -> None:
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER PRIMARY KEY,
             applied_at TEXT NOT NULL
         )
-    """)
+    """
+    )
 
 
 def _get_version(conn: sqlite3.Connection) -> int:

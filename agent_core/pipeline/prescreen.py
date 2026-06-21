@@ -30,7 +30,7 @@ def prescreen(jobs: list[Job], config) -> list[PrescreenResult]:
             score = max(0.0, score - 10.0)
         results.append(PrescreenResult(job, score, direction, resume_file, confidence))
     results.sort(key=lambda r: r.score, reverse=True)
-    return results[:config.matching.prescreen_top_n]
+    return results[: config.matching.prescreen_top_n]
 
 
 def _select_direction(job, config):
@@ -67,6 +67,9 @@ def _score_job(job, config, direction):
             score += (title_hits / len(kw)) * config.prescreen_rules.keyword_weight
     if job.salary_max is not None and job.salary_max >= config.min_salary:
         score += 10
-    if job.salary_min is not None and job.salary_min >= config.min_salary * config.prescreen_rules.salary_high_multiplier:  # noqa: E501
+    if (
+        job.salary_min is not None
+        and job.salary_min >= config.min_salary * config.prescreen_rules.salary_high_multiplier
+    ):  # noqa: E501
         score += config.prescreen_rules.salary_high_bonus
     return min(score, 100.0)

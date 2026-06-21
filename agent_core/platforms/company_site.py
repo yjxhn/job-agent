@@ -26,7 +26,12 @@ class CompanySiteAdapter(PlatformAdapter):
         raise NotImplementedError(f"{self.company_key} adapter not yet implemented")
 
     def normalize(self, raw):
-        return Job(id=raw.get("id",""), title=raw.get("title",""),
-                   company=raw.get("company",""), location=raw.get("location",""),
-                   description=raw.get("description",""),
-                   platforms=[self.name], urls={self.name:raw.get("url","")})
+        return Job(
+            id=raw.get("id", ""),
+            title=raw.get("title", ""),
+            company=raw.get("company", ""),
+            location=raw.get("location", ""),
+            description=raw.get("description", ""),
+            platforms=[self.name],
+            urls={self.name: raw.get("url", "")},
+        )

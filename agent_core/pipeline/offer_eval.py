@@ -25,21 +25,34 @@ EVAL_PROMPT = (
 )
 
 
-async def evaluate(config, llm_provider, company="", title="", location="",
-                  salary="", bonus="", benefits="", level="", notes=""):  # noqa: E501
+async def evaluate(
+    config,
+    llm_provider,
+    company="",
+    title="",
+    location="",
+    salary="",
+    bonus="",
+    benefits="",
+    level="",
+    notes="",
+):  # noqa: E501
     p = EVAL_PROMPT.format(
-        company=company, title=title, location=location,
-        salary=salary, bonus=bonus or "无",
+        company=company,
+        title=title,
+        location=location,
+        salary=salary,
+        bonus=bonus or "无",
         benefits=benefits or "五险一金",
-        level=level or "未定", notes=notes or "无"
+        level=level or "未定",
+        notes=notes or "无",
     )
     r = await llm_provider.chat(
-        messages=[{"role": "user", "content": p}],
-        temperature=0.4, max_tokens=config.llm.max_tokens
+        messages=[{"role": "user", "content": p}], temperature=0.4, max_tokens=config.llm.max_tokens
     )
     t = r.strip()
     if "```json" in t:
         t = t.split("```json")[1].split("```")[0].strip()
     elif "```" in t:
         t = t.split("```")[1].split("```")[0].strip()
-    return json.loads(re.sub(r',(\s*[}\]])', r'\1', t))
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", t))

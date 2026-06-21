@@ -11,12 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 def _make_job_id(platform: str, url: str) -> str:
-    return hashlib.md5(f"{platform}:{url}".encode()).hexdigest()[:16]  # nosec B324 -- job ID, not security
+    return hashlib.md5(f"{platform}:{url}".encode()).hexdigest()[
+        :16
+    ]  # nosec B324 -- job ID, not security
 
 
 def _normalize_company(name: str, aliases: dict) -> str:
     """Normalize company name using alias table first, then fuzzy matching."""
     from difflib import SequenceMatcher
+
     name_lower = name.strip().lower()
     # 1) Exact match in alias table
     for canonical, variants in aliases.items():
@@ -25,9 +28,7 @@ def _normalize_company(name: str, aliases: dict) -> str:
                 return canonical
     # 2) Fuzzy match against all known names
     all_known = [
-        (canonical, v.lower())
-        for canonical, variants in aliases.items()
-        for v in variants
+        (canonical, v.lower()) for canonical, variants in aliases.items() for v in variants
     ]
     best_score: float = 0.0
     best_canonical = name.strip()
@@ -58,8 +59,11 @@ async def search_all(config, platform_names=None, directions=None, headless=Fals
         for pname in platform_names:
             if pname not in config.platforms or not config.platforms[pname].enabled:
                 continue
-            tasks.append(_search_one(pname, config.platforms[pname], kw,
-                                    config.search_location, dname, headless))
+            tasks.append(
+                _search_one(
+                    pname, config.platforms[pname], kw, config.search_location, dname, headless
+                )
+            )
 
     if not tasks:
         logger.warning("No platform+keyword combinations to search")
@@ -81,19 +85,23 @@ async def _search_one(pname, pc, keywords, location, dname, headless=False) -> l
     try:
         if pname == "boss_zhipin":
             from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+
             adapter = BossZhipinAdapter()
         elif pname == "liepin":
             from agent_core.platforms.liepin import LiepinAdapter
+
             adapter = LiepinAdapter()  # type: ignore[assignment]
         elif pname == "company_site":
             from agent_core.platforms.company_site import COMPANY_SITES, CompanySiteAdapter
+
             # Try each known company site
             all_jobs = []
             for ckey in COMPANY_SITES:
                 try:
                     adapter = CompanySiteAdapter(ckey)  # type: ignore[assignment]
-                    cjobs = await adapter.search(keywords=keywords, location=location,
-                                                 headless=headless)
+                    cjobs = await adapter.search(
+                        keywords=keywords, location=location, headless=headless
+                    )
                     all_jobs.extend(cjobs)
                 except NotImplementedError:
                     logger.debug(f"[company_site] {ckey}: not yet implemented")

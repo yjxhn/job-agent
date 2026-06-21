@@ -9,10 +9,11 @@ logger = logging.getLogger(__name__)
 def notify(title: str, message: str):
     try:
         from winotify import Notification
+
         Notification(app_id="求职Agent", title=title, msg=message).show()
     except ImportError:
         try:
-            ps = f'''[Windows.UI.Notifications.ToastNotificationManager,
+            ps = f"""[Windows.UI.Notifications.ToastNotificationManager,
             Windows.UI.Notifications] > $null
             $t=[Windows.UI.Notifications.ToastNotificationManager]::
             GetTemplateContent(ToastTemplateType::ToastText02)
@@ -22,7 +23,7 @@ def notify(title: str, message: str):
             $t.CreateTextNode("{message}")) > $null
             [Windows.UI.Notifications.ToastNotificationManager]::
             CreateToastNotifier("求职Agent").
-            Show([Windows.UI.Notifications.ToastNotification]::new($t))'''
+            Show([Windows.UI.Notifications.ToastNotification]::new($t))"""
             subprocess.run(["powershell", "-Command", ps], capture_output=True)  # nosec
         except Exception as e:
             logger.warning(f"Toast failed: {e}")

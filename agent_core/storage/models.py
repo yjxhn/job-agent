@@ -51,5 +51,12 @@ class ApplicationRecord:
 
 
 VALID_STATUSES = [
-    "已投递", "HR已读", "约面", "一面", "二面", "Offer", "入职", "已终止",
+    "已投递",
+    "HR已读",
+    "约面",
+    "一面",
+    "二面",
+    "Offer",
+    "入职",
+    "已终止",
 ]

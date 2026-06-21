@@ -1,10 +1,10 @@
 """Tests for schema-versioned database migration."""
 
 import sqlite3
-import pytest
-from pathlib import Path
 
-from agent_core.storage.db import get_db, migrate, SCHEMA_VERSION
+import pytest
+
+from agent_core.storage.db import SCHEMA_VERSION, get_db, migrate
 
 
 @pytest.fixture
@@ -31,10 +31,7 @@ def test_clean_db_migrates_to_latest(tmp_db):
 
     # Verify core tables exist
     tables = {
-        row["name"]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
+        row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
     for expected in (
         "jobs",
@@ -49,10 +46,7 @@ def test_clean_db_migrates_to_latest(tmp_db):
 
     # Verify indexes exist
     indexes = {
-        row["name"]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='index'"
-        )
+        row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
     }
     for expected in (
         "idx_jobs_direction",
@@ -66,9 +60,7 @@ def test_clean_db_migrates_to_latest(tmp_db):
     # Verify the version trace: should have entries for v1 and v2
     versions = [
         row["version"]
-        for row in conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        )
+        for row in conn.execute("SELECT version FROM schema_version ORDER BY version")
     ]
     assert versions == [1, 2], f"Expected versions [1, 2], got {versions}"
 
@@ -82,7 +74,8 @@ def test_legacy_db_upgrades_from_existing_tables(tmp_db):
     """A database that predates schema_version should be detected and upgraded."""
     # Create a "legacy" DB: create the jobs table manually, no schema_version
     conn = sqlite3.connect(tmp_db)
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE jobs (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -99,9 +92,12 @@ def test_legacy_db_upgrades_from_existing_tables(tmp_db):
             last_seen TEXT NOT NULL,
             is_new INTEGER DEFAULT 1
         )
-    """)
-    conn.execute("INSERT INTO jobs (id, title, company, first_seen, last_seen) VALUES (?,?,?,?,?)",
-                 ("j1", "Engineer", "ACME", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"))
+    """
+    )
+    conn.execute(
+        "INSERT INTO jobs (id, title, company, first_seen, last_seen) VALUES (?,?,?,?,?)",
+        ("j1", "Engineer", "ACME", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+    )
     conn.commit()
     conn.close()
 
@@ -133,19 +129,14 @@ def test_migrate_is_idempotent(tmp_db):
     conn = get_db(tmp_db)
 
     migrate(conn)
-    v1_count = conn.execute(
-        "SELECT COUNT(*) FROM schema_version"
-    ).fetchone()[0]
+    v1_count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
 
     # Run again — should be safe
     migrate(conn)
-    v2_count = conn.execute(
-        "SELECT COUNT(*) FROM schema_version"
-    ).fetchone()[0]
+    v2_count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
 
     assert v1_count == v2_count == SCHEMA_VERSION, (
-        f"Version count should remain {SCHEMA_VERSION}, "
-        f"got v1={v1_count}, v2={v2_count}"
+        f"Version count should remain {SCHEMA_VERSION}, " f"got v1={v1_count}, v2={v2_count}"
     )
 
     conn.close()

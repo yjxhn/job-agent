@@ -42,6 +42,7 @@ def _session_cookie_valid(cookies):
     (no explicit expiry) — considered valid (the API will tell us if it's dead).
     """
     import time
+
     now = time.time()
     for c in cookies:
         if c.get("name") == "lt_auth":
@@ -55,6 +56,7 @@ def _notify_cookie_expired(platform="猎聘"):
     logger.warning("[猎聘] Cookie expired or rejected — re-login required")
     try:
         from agent_core.notify.windows_toast import notify_cookie_expired
+
         notify_cookie_expired(platform)
     except Exception as e:
         logger.debug(f"Cookie-expired notify skipped: {e}")
@@ -68,7 +70,11 @@ class LiepinAdapter(PlatformAdapter):
         self._ANTI_BOT_BACKOFF_SECONDS = rate_limit_seconds if rate_limit_seconds else 300
 
     async def search(
-        self, keywords, location, cookie_path=None, headless=False,
+        self,
+        keywords,
+        location,
+        cookie_path=None,
+        headless=False,
         rate_limit_seconds: int | None = None,
     ):
         """Search 猎聘 via direct HTTP API.
@@ -81,8 +87,10 @@ class LiepinAdapter(PlatformAdapter):
             self._rate_limit_seconds = rate_limit_seconds
         cookies = _load_cookies(cookie_path)
         if not cookies:
-            logger.warning(f"[猎聘] No cookie at {cookie_path}; "
-                           f"run `job-agent login --platform liepin` or import_cookies.py first")
+            logger.warning(
+                f"[猎聘] No cookie at {cookie_path}; "
+                f"run `job-agent login --platform liepin` or import_cookies.py first"
+            )
             _notify_cookie_expired()
             return []
         if not _session_cookie_valid(cookies):
@@ -95,8 +103,8 @@ class LiepinAdapter(PlatformAdapter):
         jobs = []
         for keyword in keywords[:2]:
             jobs.extend(
-                await self._search_keyword_api(
-                    keyword, city_code, cookie_str, rate_limit_seconds))
+                await self._search_keyword_api(keyword, city_code, cookie_str, rate_limit_seconds)
+            )
             await asyncio.sleep(2)  # inter-keyword rate limit
         logger.info(f"[猎聘] {len(jobs)} jobs total for keywords {keywords[:2]}")
         return jobs
@@ -130,15 +138,15 @@ class LiepinAdapter(PlatformAdapter):
                     "otherCity": "",
                     "salaryLow": "",
                     "salaryHigh": "",
-                    "hrActiveTimeCode": ""
+                    "hrActiveTimeCode": "",
                 },
                 "passThroughForm": {
                     "sfrom": "search_job_pc",
                     "ckId": secrets.token_hex(16),
                     "scene": "input",
                     "skId": secrets.token_hex(16),
-                    "fkId": secrets.token_hex(16)
-                }
+                    "fkId": secrets.token_hex(16),
+                },
             }
         }
         body = json.dumps(body_data, ensure_ascii=False).encode("utf-8")
@@ -151,23 +159,30 @@ class LiepinAdapter(PlatformAdapter):
                 xsrf_token = pair.split("=", 1)[1]
                 break
 
-        req = urllib.request.Request(SEARCH_API, data=body, method="POST", headers={
-            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/125.0.0.0 Safari/537.36"),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Content-Type": "application/json;charset=UTF-8",
-            "Origin": BASE_URL,
-            "Referer": f"{BASE_URL}/",
-            "X-Client-Type": "web",
-            "X-Requested-With": "XMLHttpRequest",
-            "X-XSRF-TOKEN": xsrf_token,
-            "X-Fscp-Version": "1.1",
-            "X-Fscp-Std-Info": json.dumps({"client_id": "40108"}),
-            "X-Fscp-Trace-Id": str(uuid.uuid4()),
-            "Cookie": cookie_str,
-        })
+        req = urllib.request.Request(
+            SEARCH_API,
+            data=body,
+            method="POST",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Content-Type": "application/json;charset=UTF-8",
+                "Origin": BASE_URL,
+                "Referer": f"{BASE_URL}/",
+                "X-Client-Type": "web",
+                "X-Requested-With": "XMLHttpRequest",
+                "X-XSRF-TOKEN": xsrf_token,
+                "X-Fscp-Version": "1.1",
+                "X-Fscp-Std-Info": json.dumps({"client_id": "40108"}),
+                "X-Fscp-Trace-Id": str(uuid.uuid4()),
+                "Cookie": cookie_str,
+            },
+        )
 
         def _fetch():
             with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
@@ -242,13 +257,21 @@ class LiepinAdapter(PlatformAdapter):
         description = "\n".join(desc_parts)
 
         unique_id = hashlib.md5(  # nosec B324 -- job ID, not security
-            (job_id or f"{company}{title}").encode()).hexdigest()[:16]
+            (job_id or f"{company}{title}").encode()
+        ).hexdigest()[:16]
 
-        j = self.normalize({
-            "id": unique_id, "title": title, "company": company,
-            "location": location, "salary_min": sal_min, "salary_max": sal_max,
-            "description": description, "url": url,
-        })
+        j = self.normalize(
+            {
+                "id": unique_id,
+                "title": title,
+                "company": company,
+                "location": location,
+                "salary_min": sal_min,
+                "salary_max": sal_max,
+                "description": description,
+                "url": url,
+            }
+        )
         # Store jobId as security_id for on-demand JD fetching (Liepin uses jobId)
         j.security_id = job_id
         j.lid = url  # Use URL as lid for reference
@@ -285,14 +308,20 @@ class LiepinAdapter(PlatformAdapter):
         cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
         import urllib.request
-        req = urllib.request.Request(job.lid, headers={
-            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/125.0.0.0 Safari/537.36"),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Cookie": cookie_str,
-        })
+
+        req = urllib.request.Request(
+            job.lid,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Cookie": cookie_str,
+            },
+        )
 
         def _fetch():
             with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
@@ -303,23 +332,24 @@ class LiepinAdapter(PlatformAdapter):
             html = raw.decode("utf-8", "replace")
             # Try to extract JD from HTML - look for common JD sections
             import re
+
             # Strategy 1: Look for "岗位职责" or "任职要求" sections
             for keyword in ["岗位职责", "任职要求", "职位描述", "岗位要求"]:
-                pattern = rf'{keyword}[：:：]([^<]+)(?:<|$)'
+                pattern = rf"{keyword}[：:：]([^<]+)(?:<|$)"
                 match = re.search(pattern, html)
                 if match:
                     return match.group(1).strip()[:5000]
             # Strategy 2: Find the largest text block in the main content area
             # Look for content between common job detail markers
             for marker in ["job-detail-content", "job-description", "content-text"]:
-                start = html.find(f'<{marker}')
+                start = html.find(f"<{marker}")
                 if start > 0:
-                    end = html.find(f'</{marker}>', start)
+                    end = html.find(f"</{marker}>", start)
                     if end > start:
                         content = html[start:end]
                         # Remove HTML tags
-                        text = re.sub(r'<[^>]+>', '', content)
-                        text = ' '.join(text.split())  # Normalize whitespace
+                        text = re.sub(r"<[^>]+>", "", content)
+                        text = " ".join(text.split())  # Normalize whitespace
                         if len(text) > 100:  # Only return if substantial
                             return text[:5000]
             logger.warning(f"[猎聘] Could not extract JD from {job.lid}")
@@ -348,7 +378,7 @@ def _parse_salary(text):
     """Parse '15-20k·13薪' into (15000, 20000), '薪资面议' into (None, None)."""
     if not text or ("k" not in text.lower() and "K" not in text):
         return None, None
-    nums = re.findall(r'(\d+(?:\.\d+)?)', text)
+    nums = re.findall(r"(\d+(?:\.\d+)?)", text)
     if len(nums) >= 2:
         return int(float(nums[0]) * 1000), int(float(nums[1]) * 1000)
     if len(nums) == 1:

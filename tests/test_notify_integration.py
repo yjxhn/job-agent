@@ -5,8 +5,8 @@ On Linux/macOS/CI they are skipped automatically via platform check.
 Use --run-integration to enable.
 """
 
-import sys
 import platform
+import sys
 
 import pytest
 

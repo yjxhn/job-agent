@@ -2,7 +2,7 @@
 
 import json
 import sqlite3
-import pytest
+
 from agent_core.server import serve
 from agent_core.storage.db import get_db, migrate
 
@@ -211,12 +211,8 @@ def test_timeline_filter_by_job_id(tmp_path):
         "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
         ("job_b", "已投递", "v1"),
     )
-    app_a = conn.execute(
-        "SELECT id FROM applications WHERE job_id='job_a'"
-    ).fetchone()[0]
-    app_b = conn.execute(
-        "SELECT id FROM applications WHERE job_id='job_b'"
-    ).fetchone()[0]
+    app_a = conn.execute("SELECT id FROM applications WHERE job_id='job_a'").fetchone()[0]
+    app_b = conn.execute("SELECT id FROM applications WHERE job_id='job_b'").fetchone()[0]
     conn.execute(
         "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
         "VALUES (?, ?, ?, datetime('now', '-1 hour'))",

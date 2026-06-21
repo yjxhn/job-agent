@@ -38,21 +38,26 @@ async def tailor_resume(job, config, llm_provider, direction=None):
     resume_text = load_resume(config, direction)
 
     prompt = TAILOR_PROMPT.format(
-        title=job.title, company=job.company,
+        title=job.title,
+        company=job.company,
         location=job.location or config.search_location,
-        description=job.description[:4000], resume=resume_text)
+        description=job.description[:4000],
+        resume=resume_text,
+    )
 
     response = await llm_provider.chat(
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.4, max_tokens=config.llm.max_tokens)
+        temperature=0.4,
+        max_tokens=config.llm.max_tokens,
+    )
     return response.strip()
 
 
 def save_resume(text, job, output_dir="output"):
     """Save tailored resume as .md and .docx. Returns file paths."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    safe_title = re.sub(r'[\\/*?:"<>|]', '', job.title)[:30]
-    safe_company = re.sub(r'[\\/*?:"<>|]', '', job.company)[:20]
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", job.title)[:30]
+    safe_company = re.sub(r'[\\/*?:"<>|]', "", job.company)[:20]
     base = f"{output_dir}/{safe_company}_{safe_title}"
 
     md_path = f"{base}.md"
@@ -86,12 +91,12 @@ def _save_docx(text, path):
             doc.add_heading(line[4:], level=2)
         elif line.startswith("- ") or line.startswith("* "):
             doc.add_paragraph(line[2:], style="List Bullet")
-        elif re.match(r'^\d+\.\s', line):
-            doc.add_paragraph(re.sub(r'^\d+\.\s*', '', line), style="List Number")
+        elif re.match(r"^\d+\.\s", line):
+            doc.add_paragraph(re.sub(r"^\d+\.\s*", "", line), style="List Number")
         else:
             p = doc.add_paragraph()
             if "**" in line:
-                parts = re.split(r'(\*\*.*?\*\*)', line)
+                parts = re.split(r"(\*\*.*?\*\*)", line)
                 for part in parts:
                     if part.startswith("**") and part.endswith("**"):
                         run = p.add_run(part[2:-2])

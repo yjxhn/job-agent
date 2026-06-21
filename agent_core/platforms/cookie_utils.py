@@ -24,16 +24,18 @@ def convert(exported: list, domain_filter: str = "") -> list:
         same = (c.get("sameSite") or "Lax").capitalize()
         if same not in ("Strict", "Lax", "None"):
             same = "Lax"
-        out.append({
-            "name": c.get("name", ""),
-            "value": c.get("value", ""),
-            "domain": domain,
-            "path": c.get("path", "/"),
-            "expires": c.get("expirationDate") or c.get("expires") or -1,
-            "httpOnly": bool(c.get("httpOnly", False)),
-            "secure": bool(c.get("secure", False)),
-            "sameSite": same,
-        })
+        out.append(
+            {
+                "name": c.get("name", ""),
+                "value": c.get("value", ""),
+                "domain": domain,
+                "path": c.get("path", "/"),
+                "expires": c.get("expirationDate") or c.get("expires") or -1,
+                "httpOnly": bool(c.get("httpOnly", False)),
+                "secure": bool(c.get("secure", False)),
+                "sameSite": same,
+            }
+        )
     return out
 
 
@@ -46,13 +48,11 @@ def convert_and_save(export_path: str, platform: str, domain_filter: str = "") -
     with open(export_path, encoding="utf-8") as f:
         exported = json.load(f)
     if not isinstance(exported, list):
-        raise ValueError(
-            f"导出文件应为 JSON 数组，实际类型: {type(exported).__name__}")
+        raise ValueError(f"导出文件应为 JSON 数组，实际类型: {type(exported).__name__}")
 
     cookies = convert(exported, domain_filter)
     if not cookies:
-        raise ValueError(
-            f"转换后 0 条 cookie（domain 过滤 '{domain_filter}' 是否正确？）")
+        raise ValueError(f"转换后 0 条 cookie（domain 过滤 '{domain_filter}' 是否正确？）")
 
     out_path = Path("data/cookies") / f"{platform}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,5 +61,9 @@ def convert_and_save(export_path: str, platform: str, domain_filter: str = "") -
 
     session_keys = SESSION_COOKIES.get(platform, set())
     found = sorted({c["name"] for c in cookies} & session_keys)
-    return {"count": len(cookies), "session_found": found,
-            "out_path": str(out_path), "platform": platform}
+    return {
+        "count": len(cookies),
+        "session_found": found,
+        "out_path": str(out_path),
+        "platform": platform,
+    }

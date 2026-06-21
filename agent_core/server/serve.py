@@ -9,6 +9,7 @@ Features:
 
 Auth: Bearer token via AGENT_DASHBOARD_TOKEN env var (dev-mode off when unset).
 """
+
 # ruff: noqa: E501  — inline CSS/JS/HTML templates, long lines by design
 
 import json
@@ -282,7 +283,11 @@ OPENAPI_SPEC: dict[str, Any] = {
                 "description": "Return job listings. Without pagination params, returns flat array (legacy). With page/page_size, returns paginated envelope.",
                 "parameters": [
                     {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}},
-                    {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500}},
+                    {
+                        "name": "page_size",
+                        "in": "query",
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 500},
+                    },
                 ],
                 "responses": {
                     "200": {"description": "Job list (flat array or paginated envelope)"},
@@ -297,12 +302,22 @@ OPENAPI_SPEC: dict[str, Any] = {
                 "parameters": [
                     {"name": "job_id", "in": "query", "schema": {"type": "string"}},
                     {"name": "event_type", "in": "query", "schema": {"type": "string"}},
-                    {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500}},
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 500},
+                    },
                     {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}},
-                    {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500}},
+                    {
+                        "name": "page_size",
+                        "in": "query",
+                        "schema": {"type": "integer", "minimum": 1, "maximum": 500},
+                    },
                 ],
                 "responses": {
-                    "200": {"description": "Timeline event list (flat array or paginated envelope)"},
+                    "200": {
+                        "description": "Timeline event list (flat array or paginated envelope)"
+                    },
                     "401": {"description": "Unauthorized (missing/invalid token)"},
                 },
             }
@@ -449,9 +464,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         else:
             # Legacy flat-list mode (backward compatible)
-            rows = conn.execute(
-                "SELECT * FROM jobs ORDER BY last_seen DESC LIMIT 200"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM jobs ORDER BY last_seen DESC LIMIT 200").fetchall()
             conn.close()
             _send_json(self, [dict(r) for r in rows])
 
@@ -546,7 +559,5 @@ def start_server(port: int = 8765, db_path: str = "data/agent.db") -> None:
     Handler.db_path = db_path
     token = os.environ.get("AGENT_DASHBOARD_TOKEN", "")
     auth_status = "enabled" if token else "disabled (dev mode)"
-    logger.info(
-        "Dashboard starting on http://localhost:%d (auth: %s)", port, auth_status
-    )
+    logger.info("Dashboard starting on http://localhost:%d (auth: %s)", port, auth_status)
     HTTPServer(("127.0.0.1", port), Handler).serve_forever()

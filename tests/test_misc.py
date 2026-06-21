@@ -1,7 +1,7 @@
 """Misc coverage: providers, cron_parser, platform stubs, search integration, base.Job."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,13 +16,15 @@ def cfg():
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------- cron_parser ----------
 
+
 def test_cron_parser_parse_units():
-    from agent_core.scheduler.cron_parser import parse, fmt
+    from agent_core.scheduler.cron_parser import parse
+
     assert parse("6h") == 6
     assert parse("1d") == 24
     assert parse("90m") == 1  # 90 // 60
@@ -32,6 +34,7 @@ def test_cron_parser_parse_units():
 
 def test_cron_parser_fmt():
     from agent_core.scheduler.cron_parser import fmt
+
     assert fmt(24) == "1d"
     assert fmt(48) == "2d"
     assert fmt(6) == "6h"
@@ -39,15 +42,18 @@ def test_cron_parser_fmt():
 
 # ---------- providers ----------
 
+
 def test_deepseek_provider_chat_passes_response_format():
     from agent_core.llm.providers import DeepSeekProvider
+
     p = DeepSeekProvider(api_key="k", base_url="http://x", model="m")
     p.client = MagicMock()
-    p.client.chat.completions.create = AsyncMock(return_value=MagicMock(
-        choices=[MagicMock(message=MagicMock(content="hi"))]))
-    out = asyncio.run(p.chat(
-        messages=[{"role": "user", "content": "x"}],
-        response_format={"type": "json_object"}))
+    p.client.chat.completions.create = AsyncMock(
+        return_value=MagicMock(choices=[MagicMock(message=MagicMock(content="hi"))])
+    )
+    out = asyncio.run(
+        p.chat(messages=[{"role": "user", "content": "x"}], response_format={"type": "json_object"})
+    )
     assert out == "hi"
     kw = p.client.chat.completions.create.call_args.kwargs
     assert kw["response_format"] == {"type": "json_object"}
@@ -56,10 +62,12 @@ def test_deepseek_provider_chat_passes_response_format():
 
 def test_deepseek_provider_chat_omits_response_format_when_none():
     from agent_core.llm.providers import DeepSeekProvider
+
     p = DeepSeekProvider(api_key="k", base_url="http://x", model="m")
     p.client = MagicMock()
-    p.client.chat.completions.create = AsyncMock(return_value=MagicMock(
-        choices=[MagicMock(message=MagicMock(content="ok"))]))
+    p.client.chat.completions.create = AsyncMock(
+        return_value=MagicMock(choices=[MagicMock(message=MagicMock(content="ok"))])
+    )
     asyncio.run(p.chat(messages=[{"role": "user", "content": "x"}]))
     kw = p.client.chat.completions.create.call_args.kwargs
     assert "response_format" not in kw
@@ -67,6 +75,7 @@ def test_deepseek_provider_chat_omits_response_format_when_none():
 
 def test_create_provider_unsupported_raises():
     from agent_core.llm.providers import create_provider
+
     cfg = MagicMock()
     cfg.llm.provider = "unknown"
     with pytest.raises(ValueError):
@@ -74,7 +83,8 @@ def test_create_provider_unsupported_raises():
 
 
 def test_create_provider_deepseek(monkeypatch):
-    from agent_core.llm.providers import create_provider, DeepSeekProvider
+    from agent_core.llm.providers import DeepSeekProvider, create_provider
+
     monkeypatch.setenv("DEEPSEEK_API_KEY", "fake-key")
     cfg = load_config("config.yaml")
     p = create_provider(cfg)
@@ -83,32 +93,48 @@ def test_create_provider_deepseek(monkeypatch):
 
 # ---------- platform stubs ----------
 
+
 def test_zhilian_stub_raises_not_implemented():
     from agent_core.platforms.zhilian import ZhilianAdapter
+
     with pytest.raises(NotImplementedError):
         asyncio.run(ZhilianAdapter().search(["x"], "全国"))
 
 
 def test_zhilian_normalize():
     from agent_core.platforms.zhilian import ZhilianAdapter
-    j = ZhilianAdapter().normalize({"id": "1", "title": "T", "company": "C",
-                                     "location": "L", "url": "http://x"})
+
+    j = ZhilianAdapter().normalize(
+        {"id": "1", "title": "T", "company": "C", "location": "L", "url": "http://x"}
+    )
     assert j.title == "T"
     assert j.urls["zhilian"] == "http://x"
 
 
 # ---------- search.search_all integration (mocked adapters) ----------
 
+
 def test_search_all_runs_adapters_and_dedups(cfg, monkeypatch):
     from agent_core.pipeline import search
     from agent_core.platforms.boss_zhipin import BossZhipinAdapter
     from agent_core.platforms.liepin import LiepinAdapter
 
-    fake_jobs = [Job(id="1", title="AMR", company="A", company_normalized="a",
-                     platforms=["boss_zhipin"], urls={"boss_zhipin": "http://1"},
-                     first_seen=_now(), last_seen=_now())]
+    fake_jobs = [
+        Job(
+            id="1",
+            title="AMR",
+            company="A",
+            company_normalized="a",
+            platforms=["boss_zhipin"],
+            urls={"boss_zhipin": "http://1"},
+            first_seen=_now(),
+            last_seen=_now(),
+        )
+    ]
 
-    async def fake_search(self, keywords, location, cookie_path=None, headless=False, rate_limit_seconds=None):
+    async def fake_search(
+        self, keywords, location, cookie_path=None, headless=False, rate_limit_seconds=None
+    ):
         return list(fake_jobs)
 
     monkeypatch.setattr(BossZhipinAdapter, "search", fake_search)
@@ -121,6 +147,7 @@ def test_search_all_runs_adapters_and_dedups(cfg, monkeypatch):
 
 def test_search_all_empty_when_no_platforms(cfg, monkeypatch):
     from agent_core.pipeline import search
+
     # Disable all platforms
     for p in cfg.platforms.values():
         p.enabled = False
@@ -130,6 +157,7 @@ def test_search_all_empty_when_no_platforms(cfg, monkeypatch):
 
 # ---------- base.Job ----------
 
+
 def test_job_dedup_key_strips_parenthetical():
     j = Job(id="1", title="AMR工程师（资深）", company="A", company_normalized="a")
     k = j.dedup_key()
@@ -138,10 +166,18 @@ def test_job_dedup_key_strips_parenthetical():
 
 
 def test_job_to_storage_from_storage_roundtrip():
-    now = datetime.now(timezone.utc)
-    j = Job(id="1", title="T", company="C", company_normalized="c",
-            direction="equipment_amr", platforms=["boss_zhipin"],
-            urls={"boss_zhipin": "http://x"}, first_seen=now, last_seen=now)
+    now = datetime.now(UTC)
+    j = Job(
+        id="1",
+        title="T",
+        company="C",
+        company_normalized="c",
+        direction="equipment_amr",
+        platforms=["boss_zhipin"],
+        urls={"boss_zhipin": "http://x"},
+        first_seen=now,
+        last_seen=now,
+    )
     rec = j.to_storage()
     j2 = Job.from_storage(rec)
     assert j2.title == "T"
@@ -151,9 +187,22 @@ def test_job_to_storage_from_storage_roundtrip():
 
 def test_job_from_storage_accepts_db_row_dict():
     from agent_core.platforms.base import Job
-    row = {"id": "1", "title": "T", "company": "C", "company_normalized": "c",
-           "location": "", "salary_min": None, "salary_max": None,
-           "description": "", "platforms": "[]", "urls": "{}", "direction": "d",
-           "first_seen": "", "last_seen": "", "is_new": 1}
+
+    row = {
+        "id": "1",
+        "title": "T",
+        "company": "C",
+        "company_normalized": "c",
+        "location": "",
+        "salary_min": None,
+        "salary_max": None,
+        "description": "",
+        "platforms": "[]",
+        "urls": "{}",
+        "direction": "d",
+        "first_seen": "",
+        "last_seen": "",
+        "is_new": 1,
+    }
     j = Job.from_storage(row)
     assert j.title == "T" and j.direction == "d"

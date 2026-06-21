@@ -20,10 +20,20 @@ LOGIN_URL = f"{BASE_URL}/web/user/?ka=header-login"
 FETCH_FULL_JD = False
 
 # Boss直聘 city codes (partial — extend as needed)
-CITY_CODES = {"全国": "100010000", "北京": "101010100", "上海": "101020100",
-              "广州": "101280100", "深圳": "101280600", "杭州": "101210100",
-              "成都": "101270100", "武汉": "101200100", "南京": "101190100",
-              "苏州": "101190400", "宁德": "101230300", "常州": "101190500"}
+CITY_CODES = {
+    "全国": "100010000",
+    "北京": "101010100",
+    "上海": "101020100",
+    "广州": "101280100",
+    "深圳": "101280600",
+    "杭州": "101210100",
+    "成都": "101270100",
+    "武汉": "101200100",
+    "南京": "101190100",
+    "苏州": "101190400",
+    "宁德": "101230300",
+    "常州": "101190500",
+}
 
 
 def _load_cookies(cookie_path):
@@ -62,6 +72,7 @@ def _notify_anti_bot(platform="Boss直聘"):
     )
     try:
         from agent_core.notify.windows_toast import notify_anti_bot
+
         notify_anti_bot(platform)
     except Exception as e:
         logger.debug(f"Anti-bot notify skipped: {e}")
@@ -72,6 +83,7 @@ def _notify_cookie_expired(platform="Boss直聘"):
     logger.warning("[Boss] Cookie expired or rejected — re-login required")
     try:
         from agent_core.notify.windows_toast import notify_cookie_expired
+
         notify_cookie_expired(platform)
     except Exception as e:
         logger.debug(f"Cookie-expired notify skipped: {e}")
@@ -86,7 +98,11 @@ class BossZhipinAdapter(PlatformAdapter):
         self._ANTI_BOT_BACKOFF_SECONDS = rate_limit_seconds if rate_limit_seconds else 300
 
     async def search(
-        self, keywords, location, cookie_path=None, headless=False,
+        self,
+        keywords,
+        location,
+        cookie_path=None,
+        headless=False,
         rate_limit_seconds: int | None = None,
     ):
         """Search Boss直聘 via direct HTTP API.
@@ -101,8 +117,10 @@ class BossZhipinAdapter(PlatformAdapter):
             self._rate_limit_seconds = rate_limit_seconds
         cookies = _load_cookies(cookie_path)
         if not cookies:
-            logger.warning(f"[Boss] No cookie at {cookie_path}; "
-                           f"run `job-agent login --platform boss` or import_cookies.py first")
+            logger.warning(
+                f"[Boss] No cookie at {cookie_path}; "
+                f"run `job-agent login --platform boss` or import_cookies.py first"
+            )
             _notify_cookie_expired()
             return []
         if not _session_cookie_valid(cookies):
@@ -114,14 +132,19 @@ class BossZhipinAdapter(PlatformAdapter):
         jobs = []
         for keyword in keywords[:2]:
             jobs.extend(
-                await self._search_keyword_api(
-                    keyword, city_code, cookie_str, rate_limit_seconds))
+                await self._search_keyword_api(keyword, city_code, cookie_str, rate_limit_seconds)
+            )
             await asyncio.sleep(2)  # inter-keyword rate limit
         logger.info(f"[Boss] {len(jobs)} jobs total for keywords {keywords[:2]}")
         return jobs
 
     async def _search_keyword_api(
-        self, keyword, city_code, cookie_str, max_pages=1, rate_limit_seconds: float = 1.5,
+        self,
+        keyword,
+        city_code,
+        cookie_str,
+        max_pages=1,
+        rate_limit_seconds: float = 1.5,
     ):
         """Call Boss joblist JSON API for one keyword."""
         import urllib.error
@@ -130,19 +153,25 @@ class BossZhipinAdapter(PlatformAdapter):
 
         jobs = []
         for page in range(1, max_pages + 1):
-            params = urllib.parse.urlencode(
-                {"query": keyword, "city": city_code, "page": page})
+            params = urllib.parse.urlencode({"query": keyword, "city": city_code, "page": page})
             url = f"https://www.zhipin.com/wapi/zpgeek/search/joblist.json?{params}"
-            req = urllib.request.Request(url, headers={
-                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                               "Chrome/125.0.0.0 Safari/537.36"),
-                "Referer": (f"https://www.zhipin.com/web/geek/job?"
-                            f"query={urllib.parse.quote(keyword)}&city={city_code}"),
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-                "Cookie": cookie_str,
-            })
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0.0.0 Safari/537.36"
+                    ),
+                    "Referer": (
+                        f"https://www.zhipin.com/web/geek/job?"
+                        f"query={urllib.parse.quote(keyword)}&city={city_code}"
+                    ),
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                    "Cookie": cookie_str,
+                },
+            )
 
             def _fetch():
                 with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
@@ -163,13 +192,20 @@ class BossZhipinAdapter(PlatformAdapter):
                 msg = obj.get("message")
                 zpdata = obj.get("zpData", {})
                 # Detect anti-bot challenge (code 37 or challenge markers in zpData)
-                is_anti_bot = (code == 37 or
-                              isinstance(zpdata, dict) and
-                              any(key in zpdata for key in ("seed", "name", "ts")))
+                is_anti_bot = (
+                    code == 37
+                    or isinstance(zpdata, dict)
+                    and any(key in zpdata for key in ("seed", "name", "ts"))
+                )
                 logger.warning(f"[Boss] API code={code} msg={msg} for '{keyword}'")
                 if is_anti_bot:
-                    logger.warning("[Boss] Anti-bot challenge (code 37), access flagged as abnormal")  # noqa: E501
-                    logger.warning(f"[Boss] Backing off for {self._ANTI_BOT_BACKOFF_SECONDS}s to avoid repeated blocking")  # noqa: E501
+                    logger.warning(
+                        "[Boss] Anti-bot challenge (code 37), access flagged as abnormal"
+                    )  # noqa: E501
+                    logger.warning(
+                        f"[Boss] Backing off for {self._ANTI_BOT_BACKOFF_SECONDS}s "
+                        "to avoid repeated blocking"
+                    )
                     _notify_anti_bot()
                     await asyncio.sleep(self._ANTI_BOT_BACKOFF_SECONDS)
                     break
@@ -196,15 +232,20 @@ class BossZhipinAdapter(PlatformAdapter):
         import urllib.request
 
         url = f"https://www.zhipin.com/wapi/zpgeek/job/card.json?securityId={security_id}&lid={lid}"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/125.0.0.0 Safari/537.36"),
-            "Referer": "https://www.zhipin.com/web/geek/job",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Cookie": cookie_str,
-        })
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://www.zhipin.com/web/geek/job",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Cookie": cookie_str,
+            },
+        )
 
         def _fetch():
             with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
@@ -262,8 +303,7 @@ class BossZhipinAdapter(PlatformAdapter):
         """Map one Boss API job item to a Job."""
         title = j.get("jobName", "")
         company = j.get("brandName", "")
-        loc_parts = [j.get("cityName"), j.get("areaDistrict"),
-                     j.get("businessDistrict")]
+        loc_parts = [j.get("cityName"), j.get("areaDistrict"), j.get("businessDistrict")]
         location = "-".join(p for p in loc_parts if p)
         sal_min, sal_max = _parse_salary(j.get("salaryDesc", ""))
         encrypt_id = j.get("encryptJobId", "")
@@ -290,12 +330,20 @@ class BossZhipinAdapter(PlatformAdapter):
         # This code block removed to avoid code-37 anti-bot triggering during search
 
         job_id = hashlib.md5(  # nosec B324 -- job ID, not security
-            (encrypt_id or f"{company}{title}").encode()).hexdigest()[:16]
-        job = self.normalize({
-            "id": job_id, "title": title, "company": company,
-            "location": location, "salary_min": sal_min, "salary_max": sal_max,
-            "description": description, "url": link,
-        })
+            (encrypt_id or f"{company}{title}").encode()
+        ).hexdigest()[:16]
+        job = self.normalize(
+            {
+                "id": job_id,
+                "title": title,
+                "company": company,
+                "location": location,
+                "salary_min": sal_min,
+                "salary_max": sal_max,
+                "description": description,
+                "url": link,
+            }
+        )
         # Store security_id and lid for on-demand JD fetching
         job.security_id = j.get("securityId", "")
         job.lid = j.get("lid", "")
@@ -335,7 +383,7 @@ def _parse_salary(text):
     """Parse '8-13K', '8K-12K', '15K' into (min, max) integers."""
     if not text or ("K" not in text and "k" not in text):
         return None, None
-    nums = re.findall(r'(\d+(?:\.\d+)?)', text)
+    nums = re.findall(r"(\d+(?:\.\d+)?)", text)
     if len(nums) >= 2:
         return int(float(nums[0]) * 1000), int(float(nums[1]) * 1000)
     if len(nums) == 1:

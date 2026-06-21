@@ -45,9 +45,11 @@ async def enrich_job_jd(job: Job, config) -> Job:
         # Import the adapter dynamically
         if platform == "boss_zhipin":
             from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+
             adapter = BossZhipinAdapter()
         elif platform == "liepin":
             from agent_core.platforms.liepin import LiepinAdapter
+
             adapter = LiepinAdapter()  # type: ignore[assignment]
         else:
             logger.warning(f"[Enrich] No fetch_full_jd implementation for platform {platform}")

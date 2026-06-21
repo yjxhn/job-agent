@@ -42,17 +42,14 @@ class TestBossRateLimit:
         mock_obj = {
             "code": 37,
             "message": "Anti-bot challenge required",
-            "zpData": {"seed": "test123"}
+            "zpData": {"seed": "test123"},
         }
 
         with patch("agent_core.platforms.boss_zhipin.json.loads") as mock_json:
             mock_json.return_value = mock_obj
 
             _result = await adapter._search_keyword_api(
-                keyword="test",
-                city_code="100010000",
-                cookie_str="test=123",
-                max_pages=1
+                keyword="test", city_code="100010000", cookie_str="test=123", max_pages=1
             )
 
         # Verify backoff uses the config value, not hardcoded 300
@@ -73,11 +70,7 @@ class TestBossRateLimit:
         mock_valid.return_value = True
 
         # Mock successful API response
-        mock_obj = {
-            "code": 0,
-            "message": "Success",
-            "zpData": {"jobList": []}
-        }
+        mock_obj = {"code": 0, "message": "Success", "zpData": {"jobList": []}}
         mock_json.return_value = mock_obj
 
         # Test with custom rate_limit_seconds
@@ -85,10 +78,7 @@ class TestBossRateLimit:
         adapter = BossZhipinAdapter(rate_limit_seconds=test_rate_limit)
 
         await adapter._search_keyword_api(
-            keyword="test",
-            city_code="100010000",
-            cookie_str="test=123",
-            max_pages=1
+            keyword="test", city_code="100010000", cookie_str="test=123", max_pages=1
         )
 
         # Verify the rate_limit_seconds was stored
@@ -98,18 +88,18 @@ class TestBossRateLimit:
     @patch("agent_core.platforms.boss_zhipin._session_cookie_valid")
     @patch("agent_core.platforms.boss_zhipin.json.loads")
     async def test_default_rate_limit_when_none_provided(
-        self, mock_json, mock_valid, mock_load, caplog,
+        self,
+        mock_json,
+        mock_valid,
+        mock_load,
+        caplog,
     ):
         """Test that default rate_limit_seconds (1.5) is used when None is provided."""
         mock_load.return_value = []
         mock_valid.return_value = True
 
         # Mock successful API response
-        mock_obj = {
-            "code": 0,
-            "message": "Success",
-            "zpData": {"jobList": []}
-        }
+        mock_obj = {"code": 0, "message": "Success", "zpData": {"jobList": []}}
         mock_json.return_value = mock_obj
 
         # Create adapter without rate_limit_seconds parameter

@@ -14,11 +14,15 @@ def _setup(config_path="config.yaml"):
     from agent_core.config import load_config
     from agent_core.llm.providers import create_provider
     from agent_core.storage.db import get_db, migrate
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.FileHandler("data/agent.log", encoding="utf-8"),
-                  logging.StreamHandler(sys.stderr)])
+        handlers=[
+            logging.FileHandler("data/agent.log", encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
+    )
     config = load_config(config_path)
     db = get_db()
     migrate(db)
@@ -35,23 +39,26 @@ def _require_provider(provider, config):
     if provider is None:
         raise typer.Exit(
             f"LLM unavailable: set {config.llm.api_key_env} environment variable "
-            f"(e.g. setx {config.llm.api_key_env} \"sk-your-key\").")
+            f'(e.g. setx {config.llm.api_key_env} "sk-your-key").'
+        )
     return provider
 
 
 @app.command()
-def login(platform: str = typer.Option("", "--platform", help="Platform: boss, liepin"),
-          status: bool = typer.Option(False, "--status", help="Check login status")):
+def login(
+    platform: str = typer.Option("", "--platform", help="Platform: boss, liepin"),
+    status: bool = typer.Option(False, "--status", help="Check login status"),
+):
     """Launch Playwright browser for manual login, or check session status."""
     config, _, _ = _setup()
 
     # Accept short aliases documented in help/README (boss -> boss_zhipin)
-    _ALIASES = {"boss": "boss_zhipin", "liepin": "liepin",
-                "51": "job51", "zhipin": "boss_zhipin"}
+    _ALIASES = {"boss": "boss_zhipin", "liepin": "liepin", "51": "job51", "zhipin": "boss_zhipin"}
     platform = _ALIASES.get(platform, platform)
 
     if status:
         from pathlib import Path
+
         for pname, pc in config.platforms.items():
             if not pc.enabled:
                 continue
@@ -59,15 +66,17 @@ def login(platform: str = typer.Option("", "--platform", help="Platform: boss, l
             if cookie_file.exists():
                 import datetime
                 import json
+
                 with open(cookie_file) as f:
                     cookies = json.load(f)
                 # Check if any cookie has expired
                 now_ms = datetime.datetime.now().timestamp()
-                expired = [c for c in cookies
-                          if c.get("expires", -1) > 0 and c["expires"] < now_ms]
+                expired = [c for c in cookies if c.get("expires", -1) > 0 and c["expires"] < now_ms]
                 valid_n = len(cookies) - len(expired)
-                typer.echo(f"  {pname}: {len(cookies)} cookies, {valid_n} valid, "
-                          f"{len(expired)} expired")
+                typer.echo(
+                    f"  {pname}: {len(cookies)} cookies, {valid_n} valid, "
+                    f"{len(expired)} expired"
+                )
             else:
                 typer.echo(f"  {pname}: NOT LOGGED IN (no cookie file)")
         return
@@ -84,9 +93,11 @@ def login(platform: str = typer.Option("", "--platform", help="Platform: boss, l
     async def _do_login():
         if platform == "boss_zhipin":
             from agent_core.platforms.boss_zhipin import boss_login
+
             await boss_login(config.platforms[platform].cookie_path)
         elif platform == "liepin":
             from agent_core.platforms.liepin import liepin_login
+
             await liepin_login(config.platforms[platform].cookie_path)
         else:
             typer.echo(f"Login not yet implemented for {platform}")
@@ -95,8 +106,10 @@ def login(platform: str = typer.Option("", "--platform", help="Platform: boss, l
 
 
 @app.command()
-def rematch(job_id: str = typer.Argument("", help="Job ID to rematch"),
-            all_since: str = typer.Option("", "--all-since", help="Date YYYY-MM-DD")):
+def rematch(
+    job_id: str = typer.Argument("", help="Job ID to rematch"),
+    all_since: str = typer.Option("", "--all-since", help="Date YYYY-MM-DD"),
+):
     """Re-run matching for a job or all jobs since a date (after resume update)."""
     config, db, provider = _setup()
     if job_id:
@@ -105,15 +118,18 @@ def rematch(job_id: str = typer.Argument("", help="Job ID to rematch"),
             typer.echo(f"Job not found: {job_id}")
             return
         from agent_core.platforms.base import Job
+
         job = Job.from_storage(row)
         # Enrich with full JD on-demand (single job only, not batch)
         import asyncio
 
         from agent_core.platforms.enrichment import enrich_job_jd
+
         job = asyncio.run(enrich_job_jd(job, config))
         # Re-run prescreen + match
         from agent_core.pipeline.match import match_jobs
         from agent_core.pipeline.prescreen import prescreen
+
         ps = prescreen([job], config)
         if ps:
             results, _skipped = asyncio.run(match_jobs(ps, config, provider))
@@ -124,17 +140,18 @@ def rematch(job_id: str = typer.Argument("", help="Job ID to rematch"),
                 )
                 typer.echo(f"    {r['match_reason']}")
     elif all_since:
-        rows = db.execute(
-            "SELECT * FROM jobs WHERE last_seen >= ?", (all_since,)).fetchall()
+        rows = db.execute("SELECT * FROM jobs WHERE last_seen >= ?", (all_since,)).fetchall()
         if not rows:
             typer.echo(f"No jobs since {all_since}")
             return
         from agent_core.platforms.base import Job
+
         jobs = [Job.from_storage(dict(r)) for r in rows]
         import asyncio
 
         from agent_core.pipeline.match import match_jobs
         from agent_core.pipeline.prescreen import prescreen
+
         ps = prescreen(jobs, config)
         typer.echo(f"Re-matching {len(ps)} jobs since {all_since}...")
         results, _skipped = asyncio.run(match_jobs(ps, config, provider))
@@ -148,8 +165,10 @@ def rematch(job_id: str = typer.Argument("", help="Job ID to rematch"),
 
 
 @app.command()
-def search(direction: str = typer.Option("", "--direction"),
-           platforms: str = typer.Option("", "--platforms")):
+def search(
+    direction: str = typer.Option("", "--direction"),
+    platforms: str = typer.Option("", "--platforms"),
+):
     """Search jobs across platforms."""
     config, _, _ = _setup()
     dirs = [direction] if direction else None
@@ -157,11 +176,13 @@ def search(direction: str = typer.Option("", "--direction"),
 
     async def _run():
         from agent_core.pipeline.search import search_all
+
         jobs = await search_all(config, plats, dirs)
         typer.echo(f"Found {len(jobs)} jobs")
         for j in jobs[:20]:
             typer.echo(f"  [{j.direction}] {j.title} @ {j.company} ({j.location})")
         return jobs
+
     return asyncio.run(_run())
 
 
@@ -173,7 +194,9 @@ def pipeline(stages: str = typer.Option("search,filter,prescreen,match", "--stag
 
     async def _run():
         from agent_core.pipeline.orchestrator import run_pipeline
+
         return await run_pipeline(config, provider, stages=stage_list)
+
     data = asyncio.run(_run())
     matched = data.get("matched", [])
     if matched:
@@ -194,6 +217,7 @@ def tailor(job_id: str = typer.Argument(..., help="Job ID to tailor resume for")
         typer.echo(f"Job not found: {job_id}")
         return
     from agent_core.platforms.base import Job
+
     job = Job.from_storage(row)
     typer.echo(f"Tailoring resume for: {job.title} @ {job.company}")
 
@@ -210,6 +234,7 @@ def tailor(job_id: str = typer.Argument(..., help="Job ID to tailor resume for")
         typer.echo(f"Resume saved: {paths['docx']}")
         typer.echo(f"Preview:     {paths['md']}")
         open_job_link(enriched)
+
     asyncio.run(_run())
 
 
@@ -217,13 +242,16 @@ def tailor(job_id: str = typer.Argument(..., help="Job ID to tailor resume for")
 def serve(port: int = typer.Option(8765, "--port")):
     """Start local HTTP dashboard."""
     from agent_core.server.serve import start_server
+
     start_server(port=port)
 
 
 @app.command()
-def track(action: str = typer.Argument("list"),
-          target: str = typer.Argument("", help="job-id or app-id or external-url"),
-          status: str = typer.Option("", "--status", help="Filter status or set new status")):
+def track(
+    action: str = typer.Argument("list"),
+    target: str = typer.Argument("", help="job-id or app-id or external-url"),
+    status: str = typer.Option("", "--status", help="Filter status or set new status"),
+):
     """Track: add <job-id|url>, list [--status HR已读], show <id>, update <id> --status 二面."""
     _, db, _ = _setup()
     from agent_core.tracking.tracker import (
@@ -234,6 +262,7 @@ def track(action: str = typer.Argument("list"),
         list_applications,
         update_status,
     )
+
     create_timeline_table(db)
 
     if action == "add":
@@ -242,8 +271,10 @@ def track(action: str = typer.Argument("list"),
             return
         # Support external applications: if target is a URL, generate an ID
         import hashlib
+
         jid = (
-            target if not target.startswith("http")
+            target
+            if not target.startswith("http")
             else hashlib.md5(target.encode()).hexdigest()[:16]  # nosec B324 -- job ID, not security
         )
         aid = add_application(db, jid)
@@ -287,7 +318,7 @@ def track(action: str = typer.Argument("list"),
             typer.echo(f"No applications{label}.")
             return
         for a in apps:
-            m = {"Offer":"🟢","入职":"🟢","已终止":"🔴"}.get(a["status"],"🟡")
+            m = {"Offer": "🟢", "入职": "🟢", "已终止": "🔴"}.get(a["status"], "🟡")
             typer.echo(
                 f"  {m} #{a['id']} [{a['status']}]"
                 f" {a.get('job_title', '?')} @ {a.get('job_company', '?')}"
@@ -305,12 +336,14 @@ def cover_letter(job_id: str = typer.Argument(..., help="Job ID")):
         typer.echo(f"Job not found: {job_id}")
         return
     from agent_core.platforms.base import Job
+
     job = Job.from_storage(row)
     typer.echo(f"Cover letter: {job.title} @ {job.company}")
     import asyncio
 
     from agent_core.pipeline.cover_letter import generate_cover_letter, save_cover_letter
     from agent_core.platforms.enrichment import enrich_job_jd
+
     async def _r():
         # Enrich with full JD on-demand before generating cover letter
         enriched = await enrich_job_jd(job, config)
@@ -318,6 +351,7 @@ def cover_letter(job_id: str = typer.Argument(..., help="Job ID")):
         path = save_cover_letter(text, enriched)
         typer.echo(text[:200] + "...")
         typer.echo(f"Saved: {path}")
+
     asyncio.run(_r())
 
 
@@ -330,20 +364,23 @@ def interview_prep(job_id: str = typer.Argument(..., help="Job ID")):
         typer.echo(f"Job not found: {job_id}")
         return
     from agent_core.platforms.base import Job
+
     job = Job.from_storage(row)
     typer.echo(f"Interview prep: {job.title} @ {job.company}")
     import asyncio
 
     from agent_core.pipeline.interview_prep import predict_questions, save_interview_prep
     from agent_core.platforms.enrichment import enrich_job_jd
+
     async def _r():
         # Enrich with full JD on-demand before generating interview prep
         enriched = await enrich_job_jd(job, config)
         qs = await predict_questions(enriched, config, provider)
         p = save_interview_prep(qs, enriched)
-        categories = ('technical', 'behavioral', 'project')
+        categories = ("technical", "behavioral", "project")
         total_q = sum(len(qs.get(c, [])) for c in categories)
         typer.echo(f"Saved: {p}\nTotal: {total_q} questions")
+
     asyncio.run(_r())
 
 
@@ -356,8 +393,10 @@ def mock_interview(job_id: str = typer.Argument(..., help="Job ID")):
         typer.echo(f"Job not found: {job_id}")
         return
     from agent_core.platforms.base import Job
+
     job = Job.from_storage(row)
     from agent_core.pipeline.interview_prep import mock_interview as mi
+
     mi(job, config, provider)
 
 
@@ -377,6 +416,7 @@ def offer_eval(
     import asyncio
 
     from agent_core.pipeline.offer_eval import evaluate
+
     async def _r():
         r = await evaluate(
             config, provider, company, title, location, salary, bonus, benefits, level, notes
@@ -389,15 +429,16 @@ def offer_eval(
         )
         typer.echo(f"\n{r['summary']}\n")
         typer.echo("优势:")
-        for p in r.get('pros', []):
+        for p in r.get("pros", []):
             typer.echo(f"  + {p}")
         typer.echo("劣势:")
-        for c in r.get('cons', []):
+        for c in r.get("cons", []):
             typer.echo(f"  - {c}")
-        if r.get('negotiation_levers'):
+        if r.get("negotiation_levers"):
             typer.echo("谈判杠杆:")
-            for n in r['negotiation_levers']:
+            for n in r["negotiation_levers"]:
                 typer.echo(f"  > {n}")
+
     asyncio.run(_r())
 
 
@@ -415,31 +456,33 @@ def salary_advice(
     import asyncio
 
     from agent_core.pipeline.salary_advice import get_advice
+
     async def _r():
-        r = await get_advice(
-            config, provider, company, title, salary, target, strengths, context
-        )
+        r = await get_advice(config, provider, company, title, salary, target, strengths, context)
         typer.echo(f"\n锚点: {r['anchor']}")
         typer.echo(f"自信度: {r['confidence']}")
         typer.echo("筹码:")
-        for line in r.get('leverage', []):
+        for line in r.get("leverage", []):
             typer.echo(f"  > {line}")
         typer.echo("让步方案:")
-        for c in r.get('concessions', []):
+        for c in r.get("concessions", []):
             typer.echo(f"  - {c}")
         typer.echo("话术:")
-        for s in r.get('scripts', []):
-            typer.echo(f"  \"{s}\"")
+        for s in r.get("scripts", []):
+            typer.echo(f'  "{s}"')
+
     asyncio.run(_r())
 
 
 @app.command(name="import-cookies")
 def import_cookies_cmd(
-        export_file: str = typer.Argument(..., help="浏览器导出的 cookie JSON 路径"),
-        platform: str = typer.Argument(..., help="目标平台键，如 boss_zhipin"),
-        domain: str = typer.Option("", "--domain", help="按域名子串过滤 cookie")):
+    export_file: str = typer.Argument(..., help="浏览器导出的 cookie JSON 路径"),
+    platform: str = typer.Argument(..., help="目标平台键，如 boss_zhipin"),
+    domain: str = typer.Option("", "--domain", help="按域名子串过滤 cookie"),
+):
     """Convert a browser-exported cookie JSON into the project cookie file."""
     from agent_core.platforms.cookie_utils import convert_and_save
+
     try:
         r = convert_and_save(export_file, platform, domain)
     except (ValueError, FileNotFoundError) as e:
@@ -464,12 +507,10 @@ def schedule(action: str = typer.Argument("status")):
         schedule_on,
         schedule_status,
     )
+
     if action == "on":
         schedule_on(config)
-        typer.echo(
-            "Scheduler ON."
-            " Run 'job-agent schedule run' to start daemon."
-        )
+        typer.echo("Scheduler ON." " Run 'job-agent schedule run' to start daemon.")
     elif action == "off":
         schedule_off()
         typer.echo("Scheduler OFF")
@@ -484,11 +525,14 @@ def schedule(action: str = typer.Argument("status")):
         )
         typer.echo("Press Ctrl+C to stop.")
         import asyncio
+
         async def _daemon():
             while True:
                 from agent_core.scheduler.scheduler import run_scheduled_search
+
                 await run_scheduled_search(config, provider, db)
                 await asyncio.sleep(config.schedule.interval_hours * 3600)
+
         try:
             asyncio.run(_daemon())
         except KeyboardInterrupt:
@@ -498,8 +542,7 @@ def schedule(action: str = typer.Argument("status")):
     else:
         s = schedule_status()
         typer.echo(
-            f"Enabled: {s['enabled']} | Runs: {s['runs']}"
-            f" | Last: {s.get('last_run', 'never')}"
+            f"Enabled: {s['enabled']} | Runs: {s['runs']}" f" | Last: {s.get('last_run', 'never')}"
         )
         if s.get("last_error"):
             typer.echo(f"Last error: {s['last_error']}")

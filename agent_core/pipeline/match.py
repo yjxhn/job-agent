@@ -83,9 +83,13 @@ async def match_jobs(prescreened, config, llm_provider):
             truncation_note = "\n(注意：JD 已截断，仅展示前部分，可能有遗漏要求)"
 
         prompt = MATCH_PROMPT.format(
-            resume=resume, title=job.title, company=job.company,
-            location=job.location, salary=salary,
-            description=desc + truncation_note)
+            resume=resume,
+            title=job.title,
+            company=job.company,
+            location=job.location,
+            salary=salary,
+            description=desc + truncation_note,
+        )
 
         async with sem:
             for attempt in range(MAX_ATTEMPTS):
@@ -97,21 +101,29 @@ async def match_jobs(prescreened, config, llm_provider):
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.3 if attempt == 0 else 0.0,
                         max_tokens=config.llm.max_tokens,
-                        response_format=rf)
+                        response_format=rf,
+                    )
                     data = _parse(resp)
-                    data.update(job_id=job.id, job_title=job.title, company=job.company,
-                                direction=job.direction, prescreen_score=item.score,
-                                confidence=item.confidence, urls=job.urls)
+                    data.update(
+                        job_id=job.id,
+                        job_title=job.title,
+                        company=job.company,
+                        direction=job.direction,
+                        prescreen_score=item.score,
+                        confidence=item.confidence,
+                        urls=job.urls,
+                    )
                     return data
                 except Exception as e:
                     if attempt < MAX_ATTEMPTS - 1:
                         logger.warning(
                             f"Match parse failed for {job.title} "
-                            f"(attempt {attempt + 1}/{MAX_ATTEMPTS}), retrying: {e}")
+                            f"(attempt {attempt + 1}/{MAX_ATTEMPTS}), retrying: {e}"
+                        )
                     else:
                         logger.error(
-                            f"Match failed for {job.title} after {MAX_ATTEMPTS} "
-                            f"attempts: {e}")
+                            f"Match failed for {job.title} after {MAX_ATTEMPTS} " f"attempts: {e}"
+                        )
                         return None
         return None
 
@@ -119,8 +131,7 @@ async def match_jobs(prescreened, config, llm_provider):
     results = [r for r in raw if r]
     skipped = len(prescreened) - len(results)
     if skipped:
-        logger.warning(
-            f"Match: {skipped}/{len(prescreened)} jobs skipped due to LLM/parse errors")
+        logger.warning(f"Match: {skipped}/{len(prescreened)} jobs skipped due to LLM/parse errors")
 
     # F7: enforce match_min_score threshold (separate from error-skipped)
     min_score = config.matching.match_min_score
@@ -142,5 +153,5 @@ def _parse(response):
     elif "```" in text:
         text = text.split("```")[1].split("```")[0].strip()
     # Remove trailing commas before ] or } (LLM sometimes produces these)
-    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
     return json.loads(text)

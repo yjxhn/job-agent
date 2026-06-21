@@ -9,9 +9,15 @@ logger = logging.getLogger(__name__)
 STAGE_ORDER = ["search", "filter", "enrich", "prescreen", "match"]
 
 
-
-async def run_pipeline(config, llm_provider, stages=None, keywords=None,
-                       directions=None, platforms=None, headless=False):
+async def run_pipeline(
+    config,
+    llm_provider,
+    stages=None,
+    keywords=None,
+    directions=None,
+    platforms=None,
+    headless=False,
+):
     if stages is None:
         stages = STAGE_ORDER
     stage_set = set(stages)
@@ -28,11 +34,12 @@ async def run_pipeline(config, llm_provider, stages=None, keywords=None,
 
     if "enrich" in stage_set and config.matching.enrich_in_pipeline:
         from agent_core.platforms.enrichment import enrich_job_jd
+
         source = data.get("filtered") or data.get("jobs") or []
         # Sort by salary_max desc (best guess for "top" jobs) to pick top-N
-        top = sorted(
-            source, key=lambda j: j.salary_max or 0, reverse=True
-        )[:config.matching.enrich_top_n]
+        top = sorted(source, key=lambda j: j.salary_max or 0, reverse=True)[
+            : config.matching.enrich_top_n
+        ]
         enriched_count = 0
         for j in top:
             try:
@@ -63,6 +70,7 @@ async def run_pipeline(config, llm_provider, stages=None, keywords=None,
     # Toast notification after pipeline completes
     try:
         from agent_core.notify.windows_toast import notify_search_complete
+
         total = len(data.get("matched", []) or data.get("prescreened", []) or data.get("jobs", []))
         notify_search_complete(total, data.get("skipped", 0))
     except Exception as e:

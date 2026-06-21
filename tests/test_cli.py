@@ -1,6 +1,8 @@
 """CLI smoke tests via Typer CliRunner -- covers command entrypoints."""
 
 import json
+from datetime import UTC
+
 from typer.testing import CliRunner
 
 from agent_core.cli import app
@@ -39,9 +41,12 @@ def test_cli_import_cookies(tmp_path, monkeypatch):
     exp.write_text(
         '[{"name":"wt2","value":"x","domain":".zhipin.com","path":"/",'
         '"expirationDate":9999999999,"secure":true,"httpOnly":false,'
-        '"sameSite":"lax"}]', encoding="utf-8")
-    result = runner.invoke(app, ["import-cookies", str(exp), "boss_zhipin",
-                                  "--domain", "zhipin.com"])
+        '"sameSite":"lax"}]',
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app, ["import-cookies", str(exp), "boss_zhipin", "--domain", "zhipin.com"]
+    )
     assert result.exit_code == 0
     assert "[OK]" in result.stdout
     assert "wt2" in result.stdout
@@ -72,6 +77,7 @@ def test_cli_schedule_on_off(tmp_path, monkeypatch):
 
     # Verify state file has enabled=True
     import json
+
     with open(state_file) as f:
         state = json.load(f)
     assert state["enabled"] is True
@@ -112,8 +118,10 @@ def test_cli_schedule_status_no_state(tmp_path, monkeypatch):
 # Tests for uncovered commands to improve coverage
 # ============================================================================
 
+
 class FakeProvider:
     """Fake LLM provider to avoid real API calls."""
+
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = 0
@@ -129,34 +137,37 @@ class FakeProvider:
 def _mock_provider(monkeypatch):
     """Monkeypatch create_provider to return a fake that won't need a real API key."""
     monkeypatch.setattr(
-        "agent_core.llm.providers.create_provider",
-        lambda config: FakeProvider(["mocked response"]))
+        "agent_core.llm.providers.create_provider", lambda config: FakeProvider(["mocked response"])
+    )
 
 
 def test_cli_search_with_mock_provider(tmp_path, monkeypatch):
     """Test search command with mocked provider and search_all."""
+    from datetime import datetime
+
     from agent_core.platforms.base import Job
-    from datetime import datetime, timezone
 
     _mock_provider(monkeypatch)
 
     # Mock search_all to return fake jobs
     async def fake_search_all(config, platform_names=None, directions=None, headless=False):
-        now = datetime.now(timezone.utc)
-        return [Job(
-            id="1",
-            title="AMR AGV 调度 SLAM 导航",
-            company="某公司",
-            company_normalized="某公司",
-            description="AMR AGV SLAM 调度 导航",
-            direction="equipment_amr",
-            platforms=["boss_zhipin"],
-            urls={"boss_zhipin": "http://x"},
-            salary_min=10000,
-            salary_max=15000,
-            first_seen=now,
-            last_seen=now
-        )]
+        now = datetime.now(UTC)
+        return [
+            Job(
+                id="1",
+                title="AMR AGV 调度 SLAM 导航",
+                company="某公司",
+                company_normalized="某公司",
+                description="AMR AGV SLAM 调度 导航",
+                direction="equipment_amr",
+                platforms=["boss_zhipin"],
+                urls={"boss_zhipin": "http://x"},
+                salary_min=10000,
+                salary_max=15000,
+                first_seen=now,
+                last_seen=now,
+            )
+        ]
 
     monkeypatch.setattr("agent_core.pipeline.search.search_all", fake_search_all)
 
@@ -193,7 +204,7 @@ def test_cli_pipeline_with_mock(tmp_path, monkeypatch):
                     "score": 80,
                     "job_title": "Test Job",
                     "company": "Test Company",
-                    "match_reason": "Good match"
+                    "match_reason": "Good match",
                 }
             ]
         }
@@ -222,21 +233,34 @@ def test_cli_pipeline_no_results(tmp_path, monkeypatch):
 
 def test_cli_rematch_single_job(tmp_path, monkeypatch):
     """Test rematch command for a single job."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup temporary database with a job
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "AMR工程师", "某公司", "某公司", "苏州", "AMR AGV SLAM", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, now)
+        (
+            "job1",
+            "AMR工程师",
+            "某公司",
+            "某公司",
+            "苏州",
+            "AMR AGV SLAM",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
@@ -254,7 +278,7 @@ def test_cli_rematch_single_job(tmp_path, monkeypatch):
                 "job_title": "AMR工程师",
                 "company": "某公司",
                 "match_reason": "Strong match",
-                "confidence": "high"
+                "confidence": "high",
             }
         ], []
 
@@ -287,21 +311,34 @@ def test_cli_salary_advice_missing_company():
 
 def test_cli_tailor(tmp_path, monkeypatch):
     """Test tailor command with mocked resume generation."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup temporary database with a job
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "AMR工程师", "某公司", "某公司", "苏州", "AMR AGV SLAM", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, now)
+        (
+            "job1",
+            "AMR工程师",
+            "某公司",
+            "某公司",
+            "苏州",
+            "AMR AGV SLAM",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
@@ -337,7 +374,8 @@ def test_cli_tailor(tmp_path, monkeypatch):
 
 def test_cli_tailor_job_not_found(tmp_path, monkeypatch):
     """Test tailor command with non-existent job."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup empty database
     db_path = tmp_path / "test.db"
@@ -354,7 +392,8 @@ def test_cli_tailor_job_not_found(tmp_path, monkeypatch):
 
 def test_cli_track_list(tmp_path, monkeypatch):
     """Test track list command."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database with timeline table
     db_path = tmp_path / "test.db"
@@ -371,7 +410,9 @@ def test_cli_track_list(tmp_path, monkeypatch):
     def fake_list_applications(db, status_filter=None):
         return []
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
     monkeypatch.setattr("agent_core.tracking.tracker.list_applications", fake_list_applications)
 
     result = runner.invoke(app, ["track", "list"])
@@ -381,7 +422,8 @@ def test_cli_track_list(tmp_path, monkeypatch):
 
 def test_cli_track_add(tmp_path, monkeypatch):
     """Test track add command."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database
     db_path = tmp_path / "test.db"
@@ -398,7 +440,9 @@ def test_cli_track_add(tmp_path, monkeypatch):
     def fake_add_application(db, job_id):
         return 1
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
     monkeypatch.setattr("agent_core.tracking.tracker.add_application", fake_add_application)
 
     result = runner.invoke(app, ["track", "add", "job1"])
@@ -408,7 +452,8 @@ def test_cli_track_add(tmp_path, monkeypatch):
 
 def test_cli_track_add_no_target(tmp_path, monkeypatch):
     """Test track add command without target."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database
     db_path = tmp_path / "test.db"
@@ -421,7 +466,9 @@ def test_cli_track_add_no_target(tmp_path, monkeypatch):
     def fake_create_timeline_table(db):
         pass
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
 
     result = runner.invoke(app, ["track", "add"])
     assert result.exit_code == 0
@@ -430,7 +477,8 @@ def test_cli_track_add_no_target(tmp_path, monkeypatch):
 
 def test_cli_track_update(tmp_path, monkeypatch):
     """Test track update command."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database
     db_path = tmp_path / "test.db"
@@ -447,7 +495,9 @@ def test_cli_track_update(tmp_path, monkeypatch):
     def fake_update_status(db, app_id, status):
         pass
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
     monkeypatch.setattr("agent_core.tracking.tracker.update_status", fake_update_status)
 
     result = runner.invoke(app, ["track", "update", "1", "--status", "二面"])
@@ -457,7 +507,8 @@ def test_cli_track_update(tmp_path, monkeypatch):
 
 def test_cli_track_show(tmp_path, monkeypatch):
     """Test track show command."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database
     db_path = tmp_path / "test.db"
@@ -478,13 +529,15 @@ def test_cli_track_show(tmp_path, monkeypatch):
             "job_title": "Test Job",
             "job_company": "Test Company",
             "applied_at": "2026-01-01",
-            "updated_at": "2026-01-02"
+            "updated_at": "2026-01-02",
         }
 
     def fake_get_timeline(db, app_id):
         return []
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
     monkeypatch.setattr("agent_core.tracking.tracker.get_application", fake_get_application)
     monkeypatch.setattr("agent_core.tracking.tracker.get_timeline", fake_get_timeline)
 
@@ -495,7 +548,8 @@ def test_cli_track_show(tmp_path, monkeypatch):
 
 def test_cli_track_unknown_action(tmp_path, monkeypatch):
     """Test track command with unknown action."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     # Setup database
     db_path = tmp_path / "test.db"
@@ -508,7 +562,9 @@ def test_cli_track_unknown_action(tmp_path, monkeypatch):
     def fake_create_timeline_table(db):
         pass
 
-    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table)
+    monkeypatch.setattr(
+        "agent_core.tracking.tracker.create_timeline_table", fake_create_timeline_table
+    )
 
     result = runner.invoke(app, ["track", "unknown"])
     assert result.exit_code == 0
@@ -517,6 +573,7 @@ def test_cli_track_unknown_action(tmp_path, monkeypatch):
 
 def test_cli_serve_with_mock(tmp_path, monkeypatch):
     """Test serve command with mocked server."""
+
     # Mock start_server to avoid actually starting server
     def fake_start_server(port=8765):
         pass  # Do nothing
@@ -524,19 +581,20 @@ def test_cli_serve_with_mock(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_core.server.serve.start_server", fake_start_server)
 
     # Invoke with default port
-    result = runner.invoke(app, ["serve"])
+    runner.invoke(app, ["serve"])
     # Command starts server which blocks, so we check it runs without error
     # The test will timeout if server actually starts, which we've prevented
 
 
 def test_cli_serve_custom_port(tmp_path, monkeypatch):
     """Test serve command with custom port."""
+
     def fake_start_server(port=8765):
         assert port == 9000
 
     monkeypatch.setattr("agent_core.server.serve.start_server", fake_start_server)
 
-    result = runner.invoke(app, ["serve", "--port", "9000"])
+    runner.invoke(app, ["serve", "--port", "9000"])
     # Command should validate port and call start_server
 
 
@@ -558,6 +616,7 @@ def test_cli__require_provider_returns_provider():
 def test_cli__require_provider_raises_on_none():
     """Test _require_provider raises typer.Exit when provider is None."""
     import typer
+
     from agent_core.cli import _require_provider
 
     class FakeConfig:
@@ -599,12 +658,24 @@ def test_cli_login_status_with_expired_cookies(tmp_path, monkeypatch):
     cookie_file = cookies_dir / "boss_zhipin.json"
 
     from datetime import datetime
+
     # Cookie expired yesterday
     past_expire = datetime.now().timestamp() - 86400
-    cookie_file.write_text(json.dumps([
-        {"name": "wt2", "value": "test", "domain": ".zhipin.com",
-         "expires": past_expire, "path": "/", "secure": True}
-    ]), encoding="utf-8")
+    cookie_file.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "wt2",
+                    "value": "test",
+                    "domain": ".zhipin.com",
+                    "expires": past_expire,
+                    "path": "/",
+                    "secure": True,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
 
     def fake_load_config(path):
         class PC:
@@ -634,15 +705,15 @@ def test_cli_login_status_with_expired_cookies(tmp_path, monkeypatch):
 
 def test_cli_rematch_job_not_found(tmp_path, monkeypatch):
     """Test rematch with non-existent job ID."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     result = runner.invoke(app, ["rematch", "nonexistent"])
     assert result.exit_code == 0
@@ -652,22 +723,34 @@ def test_cli_rematch_job_not_found(tmp_path, monkeypatch):
 def test_cli_rematch_all_since(tmp_path, monkeypatch):
     """Test rematch --all-since with matching jobs."""
     import sqlite3
+    from datetime import datetime
+
     from agent_core.storage.db import migrate
-    from datetime import datetime, timezone
 
     db_path = str(tmp_path / "test.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     future = "2099-01-01T00:00:00"
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "engineer", "acme", "acme", "Beijing", "desc", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, future)
+        (
+            "job1",
+            "engineer",
+            "acme",
+            "acme",
+            "Beijing",
+            "desc",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            future,
+        ),
     )
     conn.commit()
     conn.close()
@@ -699,15 +782,15 @@ def test_cli_rematch_all_since(tmp_path, monkeypatch):
 
 def test_cli_rematch_all_since_no_jobs(tmp_path, monkeypatch):
     """Test rematch --all-since with no matching jobs."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     result = runner.invoke(app, ["rematch", "--all-since", "2099-01-01"])
     assert result.exit_code == 0
@@ -716,26 +799,38 @@ def test_cli_rematch_all_since_no_jobs(tmp_path, monkeypatch):
 
 def test_cli_cover_letter(tmp_path, monkeypatch):
     """Test cover_letter command with mocked dependencies."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "工程师", "某公司", "某公司", "北京", "desc", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, now)
+        (
+            "job1",
+            "工程师",
+            "某公司",
+            "某公司",
+            "北京",
+            "desc",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     # Mock enrichment to return the same job
     async def fake_enrich(job, config):
@@ -747,12 +842,9 @@ def test_cli_cover_letter(tmp_path, monkeypatch):
     def fake_save(text, job):
         return "/tmp/cover_letter.md"
 
-    monkeypatch.setattr(
-        "agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
-    monkeypatch.setattr(
-        "agent_core.pipeline.cover_letter.generate_cover_letter", fake_generate)
-    monkeypatch.setattr(
-        "agent_core.pipeline.cover_letter.save_cover_letter", fake_save)
+    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.cover_letter.generate_cover_letter", fake_generate)
+    monkeypatch.setattr("agent_core.pipeline.cover_letter.save_cover_letter", fake_save)
 
     result = runner.invoke(app, ["cover-letter", "job1"])
     assert result.exit_code == 0
@@ -761,15 +853,15 @@ def test_cli_cover_letter(tmp_path, monkeypatch):
 
 def test_cli_cover_letter_job_not_found(tmp_path, monkeypatch):
     """Test cover_letter with non-existent job."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     result = runner.invoke(app, ["cover-letter", "nonexistent"])
     assert result.exit_code == 0
@@ -778,26 +870,38 @@ def test_cli_cover_letter_job_not_found(tmp_path, monkeypatch):
 
 def test_cli_interview_prep(tmp_path, monkeypatch):
     """Test interview_prep command with mocked dependencies."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "工程师", "某公司", "某公司", "北京", "desc", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, now)
+        (
+            "job1",
+            "工程师",
+            "某公司",
+            "某公司",
+            "北京",
+            "desc",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     async def fake_enrich(job, config):
         return job
@@ -808,12 +912,9 @@ def test_cli_interview_prep(tmp_path, monkeypatch):
     def fake_save(qs, job):
         return "/tmp/interview_prep.md"
 
-    monkeypatch.setattr(
-        "agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
-    monkeypatch.setattr(
-        "agent_core.pipeline.interview_prep.predict_questions", fake_predict)
-    monkeypatch.setattr(
-        "agent_core.pipeline.interview_prep.save_interview_prep", fake_save)
+    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.interview_prep.predict_questions", fake_predict)
+    monkeypatch.setattr("agent_core.pipeline.interview_prep.save_interview_prep", fake_save)
 
     result = runner.invoke(app, ["interview-prep", "job1"])
     assert result.exit_code == 0
@@ -823,15 +924,15 @@ def test_cli_interview_prep(tmp_path, monkeypatch):
 
 def test_cli_interview_prep_job_not_found(tmp_path, monkeypatch):
     """Test interview_prep with non-existent job."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     result = runner.invoke(app, ["interview-prep", "nonexistent"])
     assert result.exit_code == 0
@@ -840,32 +941,43 @@ def test_cli_interview_prep_job_not_found(tmp_path, monkeypatch):
 
 def test_cli_mock_interview(tmp_path, monkeypatch):
     """Test mock_interview command with mocked dependencies."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO jobs (id, title, company, company_normalized, location,"
         " description, direction, platforms, urls, first_seen, last_seen)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        ("job1", "工程师", "某公司", "某公司", "北京", "desc", "equipment_amr",
-         '["boss_zhipin"]', '{"boss_zhipin":"http://x"}', now, now)
+        (
+            "job1",
+            "工程师",
+            "某公司",
+            "某公司",
+            "北京",
+            "desc",
+            "equipment_amr",
+            '["boss_zhipin"]',
+            '{"boss_zhipin":"http://x"}',
+            now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_mi(job, config, provider):
         pass  # Interactive mock interview -- just no-op
 
-    monkeypatch.setattr(
-        "agent_core.pipeline.interview_prep.mock_interview", fake_mi)
+    monkeypatch.setattr("agent_core.pipeline.interview_prep.mock_interview", fake_mi)
 
     result = runner.invoke(app, ["mock-interview", "job1"])
     assert result.exit_code == 0
@@ -873,15 +985,15 @@ def test_cli_mock_interview(tmp_path, monkeypatch):
 
 def test_cli_mock_interview_job_not_found(tmp_path, monkeypatch):
     """Test mock_interview with non-existent job."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     result = runner.invoke(app, ["mock-interview", "nonexistent"])
     assert result.exit_code == 0
@@ -892,8 +1004,9 @@ def test_cli_offer_eval_full(tmp_path, monkeypatch):
     """Test offer_eval command with mocked evaluate."""
     _mock_provider(monkeypatch)
 
-    async def fake_evaluate(config, provider, company, title, location,
-                            salary, bonus, benefits, level, notes):
+    async def fake_evaluate(
+        config, provider, company, title, location, salary, bonus, benefits, level, notes
+    ):
         return {
             "overall_score": 8,
             "competitive_score": 7,
@@ -905,13 +1018,22 @@ def test_cli_offer_eval_full(tmp_path, monkeypatch):
             "negotiation_levers": ["Competing offer"],
         }
 
-    monkeypatch.setattr(
-        "agent_core.pipeline.offer_eval.evaluate", fake_evaluate)
+    monkeypatch.setattr("agent_core.pipeline.offer_eval.evaluate", fake_evaluate)
 
-    result = runner.invoke(app, [
-        "offer-eval", "--company", "TestCorp", "--title", "Engineer",
-        "--salary", "300k", "--bonus", "10%"
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "offer-eval",
+            "--company",
+            "TestCorp",
+            "--title",
+            "Engineer",
+            "--salary",
+            "300k",
+            "--bonus",
+            "10%",
+        ],
+    )
     assert result.exit_code == 0
     assert "8/10" in result.stdout
     assert "优势" in result.stdout
@@ -922,8 +1044,7 @@ def test_cli_salary_advice_full(tmp_path, monkeypatch):
     """Test salary_advice command with mocked get_advice."""
     _mock_provider(monkeypatch)
 
-    async def fake_get_advice(config, provider, company, title, salary,
-                              target, strengths, context):
+    async def fake_get_advice(config, provider, company, title, salary, target, strengths, context):
         return {
             "anchor": "300k",
             "confidence": "high",
@@ -932,13 +1053,22 @@ def test_cli_salary_advice_full(tmp_path, monkeypatch):
             "scripts": ["I appreciate the offer..."],
         }
 
-    monkeypatch.setattr(
-        "agent_core.pipeline.salary_advice.get_advice", fake_get_advice)
+    monkeypatch.setattr("agent_core.pipeline.salary_advice.get_advice", fake_get_advice)
 
-    result = runner.invoke(app, [
-        "salary-advice", "--company", "TestCorp", "--title", "Engineer",
-        "--salary", "250k", "--target", "300k"
-    ])
+    result = runner.invoke(
+        app,
+        [
+            "salary-advice",
+            "--company",
+            "TestCorp",
+            "--title",
+            "Engineer",
+            "--salary",
+            "250k",
+            "--target",
+            "300k",
+        ],
+    )
     assert result.exit_code == 0
     assert "锚点" in result.stdout
     assert "筹码" in result.stdout
@@ -947,21 +1077,20 @@ def test_cli_salary_advice_full(tmp_path, monkeypatch):
 
 def test_cli_track_update_missing_args(tmp_path, monkeypatch):
     """Test track update with missing target/status."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
 
     result = runner.invoke(app, ["track", "update"])
     assert result.exit_code == 0
@@ -970,15 +1099,15 @@ def test_cli_track_update_missing_args(tmp_path, monkeypatch):
 
 def test_cli_track_update_value_error(tmp_path, monkeypatch):
     """Test track update with non-integer app ID."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
@@ -986,10 +1115,8 @@ def test_cli_track_update_value_error(tmp_path, monkeypatch):
     def fake_update(db, app_id, status):
         raise ValueError("Not found")
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.update_status", fake_update)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.update_status", fake_update)
 
     result = runner.invoke(app, ["track", "update", "1", "--status", "二面"])
     assert result.exit_code == 0
@@ -998,21 +1125,20 @@ def test_cli_track_update_value_error(tmp_path, monkeypatch):
 
 def test_cli_track_show_no_target(tmp_path, monkeypatch):
     """Test track show without target."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
 
     result = runner.invoke(app, ["track", "show"])
     assert result.exit_code == 0
@@ -1021,15 +1147,15 @@ def test_cli_track_show_no_target(tmp_path, monkeypatch):
 
 def test_cli_track_show_value_error(tmp_path, monkeypatch):
     """Test track show with invalid app ID."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
@@ -1037,10 +1163,8 @@ def test_cli_track_show_value_error(tmp_path, monkeypatch):
     def fake_get_app(db, app_id):
         raise ValueError("Invalid ID")
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.get_application", fake_get_app)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.get_application", fake_get_app)
 
     result = runner.invoke(app, ["track", "show", "999"])
     assert result.exit_code == 0
@@ -1049,15 +1173,15 @@ def test_cli_track_show_value_error(tmp_path, monkeypatch):
 
 def test_cli_track_show_with_timeline(tmp_path, monkeypatch):
     """Test track show with timeline entries."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
@@ -1074,18 +1198,13 @@ def test_cli_track_show_with_timeline(tmp_path, monkeypatch):
 
     def fake_get_timeline(db, app_id):
         return [
-            {"created_at": "2026-01-05", "from_status": "已投递",
-             "to_status": "一面"},
-            {"created_at": "2026-01-10", "from_status": "一面",
-             "to_status": "二面"},
+            {"created_at": "2026-01-05", "from_status": "已投递", "to_status": "一面"},
+            {"created_at": "2026-01-10", "from_status": "一面", "to_status": "二面"},
         ]
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.get_application", fake_get_app)
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.get_timeline", fake_get_timeline)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.get_application", fake_get_app)
+    monkeypatch.setattr("agent_core.tracking.tracker.get_timeline", fake_get_timeline)
 
     result = runner.invoke(app, ["track", "show", "1"])
     assert result.exit_code == 0
@@ -1095,31 +1214,27 @@ def test_cli_track_show_with_timeline(tmp_path, monkeypatch):
 
 def test_cli_track_list_non_empty(tmp_path, monkeypatch):
     """Test track list with applications."""
-    from agent_core.storage.db import get_db as real_get_db, migrate
+    from agent_core.storage.db import get_db as real_get_db
+    from agent_core.storage.db import migrate
 
     db_path = tmp_path / "test.db"
     conn = real_get_db(str(db_path))
     migrate(conn)
     conn.close()
 
-    monkeypatch.setattr("agent_core.storage.db.get_db",
-                        lambda *a, **k: real_get_db(str(db_path)))
+    monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
     def fake_ctl(db):
         pass
 
     def fake_list(db, status_filter=None):
         return [
-            {"id": 1, "status": "已投递", "job_title": "Job A",
-             "job_company": "Co A"},
-            {"id": 2, "status": "Offer", "job_title": "Job B",
-             "job_company": "Co B"},
+            {"id": 1, "status": "已投递", "job_title": "Job A", "job_company": "Co A"},
+            {"id": 2, "status": "Offer", "job_title": "Job B", "job_company": "Co B"},
         ]
 
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.create_timeline_table", fake_ctl)
-    monkeypatch.setattr(
-        "agent_core.tracking.tracker.list_applications", fake_list)
+    monkeypatch.setattr("agent_core.tracking.tracker.create_timeline_table", fake_ctl)
+    monkeypatch.setattr("agent_core.tracking.tracker.list_applications", fake_list)
 
     result = runner.invoke(app, ["track", "list"])
     assert result.exit_code == 0
@@ -1135,9 +1250,12 @@ def test_cli_import_cookies_warn_no_session(tmp_path, monkeypatch):
     exp.write_text(
         '[{"name":"random_cookie","value":"x","domain":".zhipin.com",'
         '"path":"/","expirationDate":9999999999,"secure":true,'
-        '"httpOnly":false,"sameSite":"lax"}]', encoding="utf-8")
-    result = runner.invoke(app, ["import-cookies", str(exp), "boss_zhipin",
-                                  "--domain", "zhipin.com"])
+        '"httpOnly":false,"sameSite":"lax"}]',
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app, ["import-cookies", str(exp), "boss_zhipin", "--domain", "zhipin.com"]
+    )
     assert result.exit_code == 0
     assert "[WARN]" in result.stdout
 
@@ -1204,13 +1322,16 @@ def test_cli_pipeline_results_detailed(tmp_path, monkeypatch):
     async def fake_run_pipeline(config, provider, stages=None):
         return {
             "matched": [
-                {"score": 95, "job_title": "Senior Dev", "company": "BestCo",
-                 "match_reason": "Perfect match"}
+                {
+                    "score": 95,
+                    "job_title": "Senior Dev",
+                    "company": "BestCo",
+                    "match_reason": "Perfect match",
+                }
             ]
         }
 
-    monkeypatch.setattr(
-        "agent_core.pipeline.orchestrator.run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr("agent_core.pipeline.orchestrator.run_pipeline", fake_run_pipeline)
 
     result = runner.invoke(app, ["pipeline"])
     assert result.exit_code == 0

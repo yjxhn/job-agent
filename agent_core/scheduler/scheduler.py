@@ -15,8 +15,7 @@ LOCK_FILE = _PROJECT_ROOT / "data" / "scheduler.lock"
 
 
 def _default_state():
-    return {"enabled": False, "last_run": None, "runs": 0,
-            "directions": [], "last_error": None}
+    return {"enabled": False, "last_run": None, "runs": 0, "directions": [], "last_error": None}
 
 
 def _load():
@@ -30,7 +29,8 @@ def _load():
         # F5: state file corrupted — log ERROR + back up, do NOT silently disable
         logger.error(
             f"Scheduler state file corrupted ({STATE_FILE}): {e}. "
-            f"Backing up and resetting to defaults.")
+            f"Backing up and resetting to defaults."
+        )
         _backup_corrupt()
         return _default_state()
     except Exception as e:
@@ -41,6 +41,7 @@ def _load():
 def _backup_corrupt():
     try:
         import shutil
+
         corrupt = STATE_FILE.with_suffix(".json.corrupt")
         shutil.move(str(STATE_FILE), str(corrupt))
         logger.warning(f"Corrupt state moved to {corrupt}")
@@ -61,10 +62,10 @@ def _pid_alive(pid: int) -> bool:
     try:
         if os.name == "nt":
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return False
             kernel32.CloseHandle(handle)
@@ -87,8 +88,7 @@ def acquire_lock() -> bool:
         try:
             old_pid = int(LOCK_FILE.read_text().strip())
             if _pid_alive(old_pid):
-                logger.warning(
-                    f"Another scheduler daemon is running (pid={old_pid}); aborting.")
+                logger.warning(f"Another scheduler daemon is running (pid={old_pid}); aborting.")
                 return False
             logger.warning(f"Stale lock from dead pid={old_pid}; taking over.")
         except (ValueError, OSError):
@@ -128,11 +128,13 @@ def schedule_off():
 
 def schedule_status():
     s = _load()
-    return {"enabled": s.get("enabled", False),
-            "last_run": s.get("last_run"),
-            "runs": s.get("runs", 0),
-            "directions": s.get("directions", []),
-            "last_error": s.get("last_error")}
+    return {
+        "enabled": s.get("enabled", False),
+        "last_run": s.get("last_run"),
+        "runs": s.get("runs", 0),
+        "directions": s.get("directions", []),
+        "last_error": s.get("last_error"),
+    }
 
 
 async def run_scheduled_search(config, llm_provider, db):
@@ -164,15 +166,19 @@ async def run_scheduled_search(config, llm_provider, db):
     logger.info(f"Scheduler: {'catch-up' if is_catchup else 'scheduled'} search")
     try:
         from agent_core.pipeline.orchestrator import run_pipeline
+
         data = await run_pipeline(
-            config, llm_provider,
+            config,
+            llm_provider,
             stages=["search", "filter", "prescreen", "match"],
             directions=s["directions"] or config.schedule.directions,
-            headless=True)
+            headless=True,
+        )
         matched = data.get("matched", [])
         total = len(matched)
         try:
             from agent_core.notify.windows_toast import notify_search_complete
+
             notify_search_complete(total, data.get("skipped", 0))
         except Exception as e:
             # F5: was `except: pass`
@@ -186,9 +192,14 @@ async def run_scheduled_search(config, llm_provider, db):
                 db.execute(
                     "INSERT INTO search_status(search_id,platform,status,"
                     "result_count,created_at) VALUES(?,?,?,?,?)",
-                    (f"sched_{now.isoformat()}", pn,
-                     "success" if total > 0 else "no_results", total,
-                     now.isoformat()))
+                    (
+                        f"sched_{now.isoformat()}",
+                        pn,
+                        "success" if total > 0 else "no_results",
+                        total,
+                        now.isoformat(),
+                    ),
+                )
         db.commit()
         logger.info(f"Scheduler done: {total} jobs")
     except Exception as e:

@@ -7,18 +7,19 @@ prescreen, filter, search dedup, scheduler (corrupt recovery + PID lock).
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from agent_core.config import load_config
+from agent_core.pipeline import filter as filter_mod
+from agent_core.pipeline import match, prescreen
+from agent_core.pipeline.search import _dedup, _normalize_company
 from agent_core.platforms.base import Job
-from agent_core.pipeline import filter as filter_mod, prescreen, match
-from agent_core.pipeline.search import _normalize_company, _dedup
 from agent_core.scheduler import scheduler as S
 
-
 # ---------- fixtures ----------
+
 
 @pytest.fixture
 def cfg():
@@ -26,15 +27,20 @@ def cfg():
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _job(**kw):
     defaults = dict(
-        id="x", title="t", company="c", company_normalized="c",
-        description="", platforms=["boss_zhipin"],
+        id="x",
+        title="t",
+        company="c",
+        company_normalized="c",
+        description="",
+        platforms=["boss_zhipin"],
         urls={"boss_zhipin": "http://x"},
-        first_seen=_now(), last_seen=_now(),
+        first_seen=_now(),
+        last_seen=_now(),
     )
     defaults.update(kw)
     return Job(**defaults)
@@ -47,8 +53,7 @@ class FakeProvider:
         self.responses = list(responses)
         self.calls = 0
 
-    async def chat(self, messages, temperature=0.7, max_tokens=4096,
-                   response_format=None):
+    async def chat(self, messages, temperature=0.7, max_tokens=4096, response_format=None):
         self.calls += 1
         idx = min(self.calls - 1, len(self.responses) - 1)
         r = self.responses[idx]
@@ -58,6 +63,7 @@ class FakeProvider:
 
 
 # ---------- F2: match._parse ----------
+
 
 def test_parse_plain_json():
     assert match._parse('{"score": 88}') == {"score": 88}
@@ -89,18 +95,25 @@ def test_parse_empty_raises():
 
 # ---------- F2/F4/F7: match.match_jobs ----------
 
+
 def _ps_item(job, score=80, direction="equipment_amr"):
     return prescreen.PrescreenResult(
-        job=job, score=score, direction=direction,
-        resume_file="resumes/equipment_amr.txt", confidence="high")
+        job=job,
+        score=score,
+        direction=direction,
+        resume_file="resumes/equipment_amr.txt",
+        confidence="high",
+    )
 
 
 def test_match_jobs_returns_tuple_and_filters_min_score(cfg):
     # Arrange: two jobs, one below min_score (50), one above
-    provider = FakeProvider([
-        '{"score": 30, "match_reason": "low", "missing_skills": [], "strengths": []}',
-        '{"score": 80, "match_reason": "good", "missing_skills": [], "strengths": []}',
-    ])
+    provider = FakeProvider(
+        [
+            '{"score": 30, "match_reason": "low", "missing_skills": [], "strengths": []}',
+            '{"score": 80, "match_reason": "good", "missing_skills": [], "strengths": []}',
+        ]
+    )
     ps = [
         _ps_item(_job(id="1", title="AMR 低分", description="AMR AGV 调度")),
         _ps_item(_job(id="2", title="AMR 高分", description="AMR AGV 调度")),
@@ -117,10 +130,12 @@ def test_match_jobs_returns_tuple_and_filters_min_score(cfg):
 
 def test_match_jobs_retries_on_bad_json(cfg):
     # Arrange: first response bad JSON, second good → retry succeeds
-    provider = FakeProvider([
-        "not valid json",
-        '{"score": 75, "match_reason": "ok", "missing_skills": [], "strengths": []}',
-    ])
+    provider = FakeProvider(
+        [
+            "not valid json",
+            '{"score": 75, "match_reason": "ok", "missing_skills": [], "strengths": []}',
+        ]
+    )
     ps = [_ps_item(_job(id="1", title="AMR", description="AMR AGV 调度"))]
 
     # Act
@@ -157,13 +172,14 @@ def test_match_jobs_empty_input_returns_empty(cfg):
 
 def test_match_jobs_sorted_desc_by_score(cfg):
     # Arrange: responses out of order; concurrency may reorder, but result must be sorted
-    provider = FakeProvider([
-        '{"score": 60, "match_reason": "x", "missing_skills": [], "strengths": []}',
-        '{"score": 95, "match_reason": "x", "missing_skills": [], "strengths": []}',
-        '{"score": 75, "match_reason": "x", "missing_skills": [], "strengths": []}',
-    ])
-    ps = [_ps_item(_job(id=str(i), title=f"AMR {i}", description="AMR AGV 调度"))
-          for i in range(3)]
+    provider = FakeProvider(
+        [
+            '{"score": 60, "match_reason": "x", "missing_skills": [], "strengths": []}',
+            '{"score": 95, "match_reason": "x", "missing_skills": [], "strengths": []}',
+            '{"score": 75, "match_reason": "x", "missing_skills": [], "strengths": []}',
+        ]
+    )
+    ps = [_ps_item(_job(id=str(i), title=f"AMR {i}", description="AMR AGV 调度")) for i in range(3)]
 
     results, skipped = asyncio.run(match.match_jobs(ps, cfg, provider))
 
@@ -173,6 +189,7 @@ def test_match_jobs_sorted_desc_by_score(cfg):
 
 
 # ---------- prescreen ----------
+
 
 def test_prescreen_selects_equipment_direction(cfg):
     job = _job(title="AMR AGV 调度工程师", description="AMR AGV SLAM 导航 物流自动化")
@@ -189,8 +206,10 @@ def test_prescreen_selects_industrial_ai_direction(cfg):
 
 
 def test_prescreen_respects_top_n(cfg):
-    jobs = [_job(id=str(i), title=f"AMR AGV 调度 {i}",
-                 description="AMR AGV SLAM 导航 调度 激光") for i in range(50)]
+    jobs = [
+        _job(id=str(i), title=f"AMR AGV 调度 {i}", description="AMR AGV SLAM 导航 调度 激光")
+        for i in range(50)
+    ]
     ps = prescreen.prescreen(jobs, cfg)
     assert len(ps) == cfg.matching.prescreen_top_n
 
@@ -200,6 +219,7 @@ def test_prescreen_empty_returns_empty(cfg):
 
 
 # ---------- filter ----------
+
 
 def test_filter_excludes_keywords(cfg):
     jobs = [
@@ -223,6 +243,7 @@ def test_filter_passes_above_min_salary(cfg):
 
 # ---------- search dedup ----------
 
+
 def test_normalize_company_alias(cfg):
     assert _normalize_company("宁德时代", cfg.company_aliases) == "catl"
     assert _normalize_company("CATL", cfg.company_aliases) == "catl"
@@ -234,18 +255,33 @@ def test_normalize_company_unknown_passes_through(cfg):
 
 def test_dedup_merges_same_company_across_platforms(cfg):
     now = _now()
-    j1 = _job(id="a", title="工程师", company="宁德时代", company_normalized="catl",
-              platforms=["boss_zhipin"], urls={"boss_zhipin": "http://x"},
-              first_seen=now, last_seen=now)
-    j2 = _job(id="b", title="工程师", company="CATL", company_normalized="catl",
-              platforms=["liepin"], urls={"liepin": "http://y"},
-              first_seen=now, last_seen=now)
+    j1 = _job(
+        id="a",
+        title="工程师",
+        company="宁德时代",
+        company_normalized="catl",
+        platforms=["boss_zhipin"],
+        urls={"boss_zhipin": "http://x"},
+        first_seen=now,
+        last_seen=now,
+    )
+    j2 = _job(
+        id="b",
+        title="工程师",
+        company="CATL",
+        company_normalized="catl",
+        platforms=["liepin"],
+        urls={"liepin": "http://y"},
+        first_seen=now,
+        last_seen=now,
+    )
     merged = _dedup([j1, j2], cfg.company_aliases)
     assert len(merged) == 1
     assert set(merged[0].platforms) == {"boss_zhipin", "liepin"}
 
 
 # ---------- F5/F9: scheduler ----------
+
 
 def test_scheduler_load_corrupt_resets_and_backs_up(tmp_path, monkeypatch):
     # Arrange: corrupt state file
@@ -290,8 +326,13 @@ def test_scheduler_pid_alive_invalid_pid():
 
 def test_scheduler_save_load_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "STATE_FILE", tmp_path / "state.json")
-    s = {"enabled": True, "last_run": "2026-06-19T00:00:00+00:00",
-         "runs": 5, "directions": ["equipment_amr"], "last_error": None}
+    s = {
+        "enabled": True,
+        "last_run": "2026-06-19T00:00:00+00:00",
+        "runs": 5,
+        "directions": ["equipment_amr"],
+        "last_error": None,
+    }
     S._save(s)
     loaded = S._load()
     assert loaded["enabled"] is True
@@ -301,10 +342,13 @@ def test_scheduler_save_load_roundtrip(tmp_path, monkeypatch):
 
 # ---------- tracking (7-stage lifecycle) ----------
 
-from agent_core.storage.db import get_db, migrate
-from agent_core.tracking.tracker import (
-    add_application, update_status, list_applications,
-    get_application, get_timeline,
+from agent_core.storage.db import get_db, migrate  # noqa: E402
+from agent_core.tracking.tracker import (  # noqa: E402
+    add_application,
+    get_application,
+    get_timeline,
+    list_applications,
+    update_status,
 )
 
 
@@ -354,7 +398,7 @@ def test_update_status_unknown_app_raises(db):
 
 
 def test_list_applications_filter_by_status(db):
-    a1 = add_application(db, job_id="j1")
+    add_application(db, job_id="j1")
     a2 = add_application(db, job_id="j2")
     update_status(db, a2, "HR已读")
     still_applied = list_applications(db, status_filter="已投递")
@@ -364,8 +408,10 @@ def test_list_applications_filter_by_status(db):
 
 # ---------- boss_zhipin HTTP API mapping (F6 rewrite) ----------
 
+
 def test_boss_parse_salary_ranges():
     from agent_core.platforms.boss_zhipin import _parse_salary
+
     assert _parse_salary("8-13K") == (8000, 13000)
     assert _parse_salary("15K") == (15000, None)
     assert _parse_salary("") == (None, None)
@@ -374,14 +420,22 @@ def test_boss_parse_salary_ranges():
 
 def test_boss_api_item_to_job_maps_all_fields():
     from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+
     adapter = BossZhipinAdapter()
     item = {
-        "jobName": "AMR工程师", "brandName": "某科技",
-        "cityName": "苏州", "areaDistrict": "高新区", "businessDistrict": "科技园",
-        "salaryDesc": "8-13K", "encryptJobId": "abc123",
-        "jobExperience": "经验不限", "jobDegree": "大专",
-        "skills": ["ROS", "SLAM"], "jobLabels": ["经验不限"],
-        "welfareList": ["五险一金"], "brandIndustry": "机器人",
+        "jobName": "AMR工程师",
+        "brandName": "某科技",
+        "cityName": "苏州",
+        "areaDistrict": "高新区",
+        "businessDistrict": "科技园",
+        "salaryDesc": "8-13K",
+        "encryptJobId": "abc123",
+        "jobExperience": "经验不限",
+        "jobDegree": "大专",
+        "skills": ["ROS", "SLAM"],
+        "jobLabels": ["经验不限"],
+        "welfareList": ["五险一金"],
+        "brandIndustry": "机器人",
         "brandScaleName": "100-499人",
     }
     job = asyncio.run(adapter._api_item_to_job(item))
@@ -400,6 +454,7 @@ def test_boss_api_item_to_job_maps_all_fields():
 
 def test_boss_api_item_to_job_handles_missing_fields():
     from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+
     adapter = BossZhipinAdapter()
     # Minimal item — no salary, no encryptJobId, no optional fields
     job = asyncio.run(adapter._api_item_to_job({"jobName": "X", "brandName": "Y"}))
@@ -412,11 +467,13 @@ def test_boss_api_item_to_job_handles_missing_fields():
 
 def test_boss_load_cookies_missing_returns_empty(tmp_path):
     from agent_core.platforms.boss_zhipin import _load_cookies
+
     assert _load_cookies(str(tmp_path / "nope.json")) == []
 
 
 def test_boss_load_cookies_parses_list(tmp_path):
     from agent_core.platforms.boss_zhipin import _load_cookies
+
     p = tmp_path / "c.json"
     p.write_text('[{"name":"wt2","value":"abc","domain":".zhipin.com"}]', encoding="utf-8")
     cookies = _load_cookies(str(p))
@@ -426,6 +483,7 @@ def test_boss_load_cookies_parses_list(tmp_path):
 
 def test_boss_session_cookie_valid():
     from agent_core.platforms.boss_zhipin import _session_cookie_valid
+
     # No wt2 → invalid
     assert _session_cookie_valid([{"name": "bst"}]) is False
     # wt2 session cookie (expires <= 0) → valid

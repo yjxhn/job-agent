@@ -1,12 +1,13 @@
 """Tests for prescreen scoring rules configuration."""
 
-import pytest
-import tempfile
 import os
 import shutil
-from pathlib import Path
-from agent_core.pipeline.prescreen import _score_job
+import tempfile
+
+import pytest
+
 from agent_core.config import load_config
+from agent_core.pipeline.prescreen import _score_job
 
 
 def test_default_config_score():
@@ -32,8 +33,6 @@ def test_default_config_score():
 def test_config_override_score():
     """Test that config override changes scores."""
     # Create a copy of default config and modify it
-    import yaml
-    from agent_core.config import Config, DirectionConfig, PlatformConfig, MatchingConfig, PrescreenRulesConfig
 
     cfg = load_config()
 
@@ -70,12 +69,7 @@ def test_backward_compatibility():
     try:
         # Use a minimal config dict without prescreen_rules
         minimal_config = {
-            "platforms": {
-                "boss_zhipin": {
-                    "enabled": False,
-                    "login_method": "none"
-                }
-            },
+            "platforms": {"boss_zhipin": {"enabled": False, "login_method": "none"}},
             "search": {
                 "location": "全国",
                 "min_salary": 6000,
@@ -84,14 +78,11 @@ def test_backward_compatibility():
                     "industrial_ai_agent": {
                         "keywords": ["AI Agent"],
                         "resume_file": "resumes/industrial_ai_agent.txt",
-                        "feature_words": ["Agent", "LLM"]
+                        "feature_words": ["Agent", "LLM"],
                     }
-                }
+                },
             },
-            "matching": {
-                "prescreen_top_n": 30,
-                "match_min_score": 50
-            }
+            "matching": {"prescreen_top_n": 30, "match_min_score": 50},
         }
 
         with open(temp_path, "w", encoding="utf-8") as f:
@@ -125,8 +116,6 @@ def test_backward_compatibility():
 def test_salary_scoring_with_config():
     """Test salary scoring respects salary_high_multiplier and salary_high_bonus."""
     # Create a config with modified salary thresholds
-    import yaml
-    from agent_core.config import Config, DirectionConfig, PlatformConfig, MatchingConfig, PrescreenRulesConfig
 
     cfg = load_config()
     cfg.prescreen_rules.salary_high_multiplier = 3.0
