@@ -4,6 +4,8 @@ import json
 import logging
 import re
 
+from agent_core.llm.providers import call_llm_with_retry
+
 logger = logging.getLogger(__name__)
 
 EVAL_PROMPT = (
@@ -47,8 +49,11 @@ async def evaluate(
         level=level or "未定",
         notes=notes or "无",
     )
-    r = await llm_provider.chat(
-        messages=[{"role": "user", "content": p}], temperature=0.4, max_tokens=config.llm.max_tokens
+    r = await call_llm_with_retry(
+        llm_provider,
+        messages=[{"role": "user", "content": p}],
+        temperature=0.4,
+        max_tokens=config.llm.max_tokens,
     )
     t = r.strip()
     if "```json" in t:

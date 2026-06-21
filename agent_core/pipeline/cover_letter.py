@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from agent_core.config import load_resume
+from agent_core.llm.providers import call_llm_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,11 @@ async def generate_cover_letter(job, config, llm_provider, direction=None):
         description=job.description[:2000],
         resume=resume,
     )
-    resp = await llm_provider.chat(
-        messages=[{"role": "user", "content": prompt}], temperature=0.5, max_tokens=1024
+    resp = await call_llm_with_retry(
+        llm_provider,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+        max_tokens=1024,
     )
     return resp.strip()
 

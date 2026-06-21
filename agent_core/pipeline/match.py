@@ -13,6 +13,7 @@ import logging
 import re
 
 from agent_core.config import load_resume
+from agent_core.llm.providers import call_llm_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,8 @@ async def match_jobs(prescreened, config, llm_provider):
                     # attempt 0: enforce JSON; attempt 1: relax (in case the
                     # provider rejects response_format or still misformats)
                     rf = {"type": "json_object"} if attempt == 0 else None
-                    resp = await llm_provider.chat(
+                    resp = await call_llm_with_retry(
+                        llm_provider,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.3 if attempt == 0 else 0.0,
                         max_tokens=config.llm.max_tokens,

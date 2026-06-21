@@ -91,14 +91,122 @@ def test_create_provider_deepseek(monkeypatch):
     assert isinstance(p, DeepSeekProvider)
 
 
+# ---------- call_llm_with_retry ----------
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_success_on_first_attempt():
+    """No retries needed when first call succeeds."""
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock(return_value="ok")
+
+    result = await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert result == "ok"
+    assert provider.chat.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_handles_429_then_succeeds():
+    """First call 429, second succeeds — should retry once."""
+    from openai import RateLimitError
+
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock()
+    provider.chat.side_effect = [
+        RateLimitError("rate limited", response=MagicMock(), body=None),
+        "ok",
+    ]
+
+    result = await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert result == "ok"
+    assert provider.chat.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_handles_429_with_api_status_error():
+    """APIStatusError with status_code=429 treated like RateLimitError."""
+    from openai import APIStatusError
+
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock()
+    provider.chat.side_effect = [
+        APIStatusError("429", response=MagicMock(status_code=429), body=None),
+        "ok",
+    ]
+
+    result = await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert result == "ok"
+    assert provider.chat.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_timeout_then_succeeds():
+    """Timeout on first, success on second."""
+    from openai import APITimeoutError
+
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock()
+    provider.chat.side_effect = [
+        APITimeoutError("timeout"),
+        "ok",
+    ]
+
+    result = await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert result == "ok"
+    assert provider.chat.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_exhausted_raises():
+    """All 3 retries fail with RateLimitError — should raise."""
+    from openai import RateLimitError
+
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock()
+    provider.chat.side_effect = RateLimitError("rate limited", response=MagicMock(), body=None)
+
+    with pytest.raises(RateLimitError):
+        await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert provider.chat.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_non_retryable_error_passes_through():
+    """Non-retryable errors should propagate immediately (no retry)."""
+    from openai import APIStatusError
+
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+    provider.chat = AsyncMock()
+    provider.chat.side_effect = APIStatusError(
+        "500 Internal Server Error", response=MagicMock(status_code=500), body=None
+    )
+
+    with pytest.raises(APIStatusError):
+        await call_llm_with_retry(provider, messages=[{"role": "user", "content": "hi"}])
+    assert provider.chat.call_count == 1  # no retry for non-429
+
+
 # ---------- platform stubs ----------
 
 
-def test_zhilian_stub_raises_not_implemented():
+def test_zhilian_no_cookie_returns_empty():
+    """Zhilian adapter returns empty list when no cookie is available."""
     from agent_core.platforms.zhilian import ZhilianAdapter
 
-    with pytest.raises(NotImplementedError):
-        asyncio.run(ZhilianAdapter().search(["x"], "全国"))
+    jobs = asyncio.run(ZhilianAdapter().search(["x"], "全国"))
+    assert jobs == [], "Should return empty list when no cookie"
 
 
 def test_zhilian_normalize():

@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from agent_core.config import load_resume
+from agent_core.llm.providers import call_llm_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ async def predict_questions(job, config, llm_provider, direction=None):
         description=job.description[:3000],
         resume=resume,
     )
-    r = await llm_provider.chat(
+    r = await call_llm_with_retry(
+        llm_provider,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
         max_tokens=config.llm.max_tokens,
@@ -102,7 +104,9 @@ def mock_interview(job, config, llm_provider, direction=None):
 
     async def _l():
         while True:
-            r = await llm_provider.chat(messages=msgs, temperature=0.7, max_tokens=1024)
+            r = await call_llm_with_retry(
+                llm_provider, messages=msgs, temperature=0.7, max_tokens=1024
+            )
             msgs.append({"role": "assistant", "content": r})
             transcript.append(f"面试官: {r}\n")
             print(f"\n面试官: {r}\n")

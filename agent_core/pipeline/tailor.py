@@ -6,6 +6,7 @@ import webbrowser
 from pathlib import Path
 
 from agent_core.config import load_resume
+from agent_core.llm.providers import call_llm_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ async def tailor_resume(job, config, llm_provider, direction=None):
         resume=resume_text,
     )
 
-    response = await llm_provider.chat(
+    response = await call_llm_with_retry(
+        llm_provider,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.4,
         max_tokens=config.llm.max_tokens,

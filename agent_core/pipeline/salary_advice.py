@@ -4,6 +4,8 @@ import json
 import logging
 import re
 
+from agent_core.llm.providers import call_llm_with_retry
+
 logger = logging.getLogger(__name__)
 
 ADVICE_PROMPT = (
@@ -36,8 +38,11 @@ async def get_advice(
         strengths=strengths or "技能匹配",
         context=context or "制造业AI岗位需求旺盛",
     )
-    r = await llm_provider.chat(
-        messages=[{"role": "user", "content": p}], temperature=0.4, max_tokens=config.llm.max_tokens
+    r = await call_llm_with_retry(
+        llm_provider,
+        messages=[{"role": "user", "content": p}],
+        temperature=0.4,
+        max_tokens=config.llm.max_tokens,
     )
     t = r.strip()
     if "```json" in t:
