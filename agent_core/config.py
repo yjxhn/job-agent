@@ -27,7 +27,7 @@ class PlatformConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     enabled: bool = Field(default=False)
-    login_method: str = Field(default="playwright_cookie")
+    login_method: str = Field(default="import_cookies")
     cookie_path: str = Field(default="")
     rate_limit_seconds: int = Field(default=30, ge=0)  # rate_limit_seconds >= 0
 
@@ -137,7 +137,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     for name, pdata in raw.get("platforms", {}).items():
         platforms[name] = PlatformConfig(
             enabled=pdata.get("enabled", False),
-            login_method=pdata.get("login_method", "playwright_cookie"),
+            login_method=pdata.get("login_method", "import_cookies"),
             cookie_path=pdata.get("cookie_path", f"data/cookies/{name}.json"),
             rate_limit_seconds=pdata.get("rate_limit_seconds", 30),
         )
