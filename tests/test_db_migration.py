@@ -154,3 +154,16 @@ def test_schema_version_matches_migrations():
         f"SCHEMA_VERSION ({db.SCHEMA_VERSION}) does not match "
         f"highest migration ({max_migration})"
     )
+
+
+# ---------- WAL mode ----------
+
+
+def test_wal_mode_enabled(tmp_db):
+    """get_db() should enable WAL journal mode."""
+    conn = get_db(tmp_db)
+    row = conn.execute("PRAGMA journal_mode").fetchone()
+    assert row[0].lower() == "wal", f"Expected WAL mode, got {row[0]}"
+    row2 = conn.execute("PRAGMA foreign_keys").fetchone()
+    assert row2[0] == 1, "Foreign keys should be ON"
+    conn.close()
