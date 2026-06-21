@@ -1,0 +1,46 @@
+# Runtime data (may contain real cookies, databases with personal info)
+data/
+
+# Output files (generated resumes, reports, exports)
+output/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Package build artifacts
+*.egg-info/
+dist/
+
+# Environment files (API keys)
+.env
+*.env
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+
+# Databases (local DBs may contain personal info)
+*.db
+*.sqlite
+*.sqlite3
+
+# Type checking
+.mypy_cache/
+
+# Linting
+.ruff_cache/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+Thumbs.db
+.DS_Store

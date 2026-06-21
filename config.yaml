@@ -1,0 +1,69 @@
+platforms:
+  boss_zhipin:
+    enabled: true
+    login_method: "playwright_cookie"
+    cookie_path: "data/cookies/boss.json"
+    rate_limit_seconds: 30
+  liepin:
+    enabled: true
+    login_method: "playwright_cookie"
+    cookie_path: "data/cookies/liepin.json"
+    rate_limit_seconds: 30
+  job51:
+    enabled: false
+  zhilian:
+    enabled: false
+  maimai:
+    enabled: false
+
+search:
+  directions:
+    industrial_ai_agent:
+      keywords: ["工业AI Agent", "智能产线", "Agent 架构", "工业大模型", "智能制造AI"]
+      resume_file: "resumes/industrial_ai_agent.txt"
+      feature_words: ["Agent", "LLM", "RAG", "Memory", "Multi-Agent", "Skill", "Workflow", "Prompt", "大模型"]
+    equipment_amr:
+      keywords: ["AMR", "AGV", "自主移动机器人", "物流自动化", "智能搬运", "机器人调度"]
+      resume_file: "resumes/equipment_amr.txt"
+      feature_words: ["AMR", "AGV", "PLC", "SLAM", "MES", "WMS", "SCADA", "调度", "导航", "激光"]
+  location: "全国"
+  min_salary: 6000
+  exclude_keywords: ["劳务派遣", "外包", "派遣", "外派"]
+
+company_aliases:
+  catl: ["宁德时代", "CATL", "宁德时代新能源科技股份有限公司"]
+  byd: ["比亚迪", "BYD", "比亚迪股份有限公司"]
+  huawei: ["华为", "Huawei", "华为技术有限公司"]
+  foxconn: ["富士康", "Foxconn", "鸿海", "富士康科技集团"]
+  haier: ["海尔", "Haier", "海尔集团", "海尔智家"]
+  sany: ["三一", "三一重工", "SANY"]
+  zoomlion: ["中联", "中联重科", "Zoomlion"]
+
+matching:
+  prescreen_top_n: 30
+  match_min_score: 50
+
+prescreen_rules:
+  feature_weight: 25
+  keyword_weight: 15
+  salary_high_multiplier: 1.5
+  salary_high_bonus: 5
+
+llm:
+  provider: "deepseek"
+  model: "deepseek-v4-pro"
+  api_key_env: "DEEPSEEK_API_KEY"
+  base_url: "https://api.deepseek.com"
+  temperature: 0.7
+  max_tokens: 4096
+
+notify:
+  windows_toast: true
+  notify_on_zero_results: true
+  interview_reminder_hours: 24
+
+schedule:
+  enabled: true
+  interval_hours: 6
+  directions: ["industrial_ai_agent", "equipment_amr"]
+  quiet_hours: [0, 7]
