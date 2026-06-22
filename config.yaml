@@ -12,9 +12,17 @@ platforms:
   job51:
     enabled: false
   zhilian:
-    enabled: false
+    enabled: true
   maimai:
     enabled: false
+  tencent:
+    enabled: false
+    login_method: "none"
+    rate_limit_seconds: 1
+  netease:
+    enabled: false
+    login_method: "none"
+    rate_limit_seconds: 1
 
 search:
   directions:
@@ -38,6 +46,8 @@ company_aliases:
   haier: ["海尔", "Haier", "海尔集团", "海尔智家"]
   sany: ["三一", "三一重工", "SANY"]
   zoomlion: ["中联", "中联重科", "Zoomlion"]
+  tencent: ["腾讯", "Tencent", "腾讯科技", "深圳市腾讯计算机系统有限公司"]
+  netease: ["网易", "NetEase", "网易集团", "网易(杭州)网络有限公司"]
 
 matching:
   prescreen_top_n: 30

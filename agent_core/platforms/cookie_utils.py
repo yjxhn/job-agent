@@ -11,6 +11,7 @@ from pathlib import Path
 SESSION_COOKIES = {
     "boss_zhipin": {"wt2", "wbg", "boss_token", "__zp_stoken__"},
     "liepin": {"lt_auth", "lt_auth_v2", "XSRF-TOKEN"},
+    "zhilian": {"x-zp-client-id", "FSSBBIl1UgzbN7NS", "zp_passport_deepknow_sessionId"},
 }
 
 

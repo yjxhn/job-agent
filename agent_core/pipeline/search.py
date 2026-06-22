@@ -91,6 +91,18 @@ async def _search_one(pname, pc, keywords, location, dname, headless=False) -> l
             from agent_core.platforms.liepin import LiepinAdapter
 
             adapter = LiepinAdapter()  # type: ignore[assignment]
+        elif pname == "zhilian":
+            from agent_core.platforms.zhilian import ZhilianAdapter
+
+            adapter = ZhilianAdapter()  # type: ignore[assignment]
+        elif pname == "tencent":
+            from agent_core.platforms.tencent import TencentAdapter
+
+            adapter = TencentAdapter()  # type: ignore[assignment]
+        elif pname == "netease":
+            from agent_core.platforms.netease import NeteaseAdapter
+
+            adapter = NeteaseAdapter()  # type: ignore[assignment]
         elif pname == "company_site":
             from agent_core.platforms.company_site import COMPANY_SITES, CompanySiteAdapter
 
