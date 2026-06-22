@@ -15,6 +15,10 @@ def _setup(config_path="config.yaml"):
     from agent_core.llm.providers import create_provider
     from agent_core.storage.db import get_db, migrate
 
+    # Ensure UTF-8 output on Windows (emojis break GBK in cmd.exe)
+    if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -53,7 +57,13 @@ def login(
     config, _, _ = _setup()
 
     # Accept short aliases documented in help/README (boss -> boss_zhipin)
-    _ALIASES = {"boss": "boss_zhipin", "liepin": "liepin", "51": "job51", "zhipin": "boss_zhipin"}
+    _ALIASES = {
+        "boss": "boss_zhipin",
+        "liepin": "liepin",
+        "51": "job51",
+        "zhipin": "boss_zhipin",
+        "zl": "zhilian",
+    }
     platform = _ALIASES.get(platform, platform)
 
     if status:
@@ -82,7 +92,7 @@ def login(
         return
 
     if not platform:
-        typer.echo("Use --platform boss|liepin to login, or --status to check.")
+        typer.echo("Use --platform boss|liepin|zhilian to login, or --status to check.")
         return
     if platform not in config.platforms:
         typer.echo(f"Unknown platform: {platform}")
@@ -99,6 +109,10 @@ def login(
             from agent_core.platforms.liepin import liepin_login
 
             await liepin_login(config.platforms[platform].cookie_path)
+        elif platform == "zhilian":
+            from agent_core.platforms.zhilian import zhilian_login
+
+            await zhilian_login(config.platforms[platform].cookie_path)
         else:
             typer.echo(f"Login not yet implemented for {platform}")
 
@@ -181,6 +195,15 @@ def search(
         typer.echo(f"Found {len(jobs)} jobs")
         for j in jobs[:20]:
             typer.echo(f"  [{j.direction}] {j.title} @ {j.company} ({j.location})")
+
+        # If zero results, check cookies and print diagnosis
+        if len(jobs) == 0 and config.platforms:
+            from agent_core.cookie_health import diagnose_empty_results
+
+            diag = diagnose_empty_results(config)
+            if diag:
+                typer.echo(diag)
+
         return jobs
 
     return asyncio.run(_run())
@@ -206,6 +229,13 @@ def pipeline(stages: str = typer.Option("search,filter,prescreen,match", "--stag
             typer.echo(f"    {m['match_reason']}")
     else:
         typer.echo("No results. Try 'job-agent search' first.")
+        # Check if cookies are the root cause
+        if config.platforms:
+            from agent_core.cookie_health import diagnose_empty_results
+
+            diag = diagnose_empty_results(config)
+            if diag:
+                typer.echo(diag)
 
 
 @app.command()
@@ -494,6 +524,57 @@ def import_cookies_cmd(
         typer.echo("     [OK] 登录态 cookie 存在。")
     else:
         typer.echo("     [WARN] 未发现已知 session cookie，请确认导出前已登录。")
+
+
+@app.command(name="check-cookies")
+def check_cookies_cmd(
+    probe: bool = typer.Option(
+        False, "--probe", help="实际发搜索请求探活（默认关闭，避免消耗 Boss token）"
+    ),
+    config_path: str = typer.Option("config.yaml", "--config"),
+):
+    """体检各平台 cookie 健康状态（过期检查 + 重抓指引）。"""
+    config, _, _ = _setup(config_path)
+
+    import asyncio
+
+    from agent_core.cookie_health import CookieStatus, check_cookies
+
+    async def _run():
+        return await check_cookies(config, probe=probe)
+
+    results = asyncio.run(_run())
+
+    # Table header
+    header = f" {'平台':<10s} {'状态':<12s} {'关键Cookie过期时间'}"
+    typer.echo()
+    typer.echo(header)
+    typer.echo("-" * 58)
+
+    for r in results:
+        expiry_info = "; ".join(r.details) if r.details else "N/A"
+        line = f" {r.status_icon} {r.display_name:<8s} {r.status_label:<10s} {expiry_info}"
+        typer.echo(line)
+
+    typer.echo()
+
+    # Print regrab guides for problem platforms
+    problem_platforms = [
+        r
+        for r in results
+        if r.status in (CookieStatus.EXPIRED, CookieStatus.MISSING, CookieStatus.EXPIRING_SOON)
+    ]
+
+    if problem_platforms:
+        typer.echo("需要重抓 cookie 的平台：")
+        for r in problem_platforms:
+            typer.echo(r.regrab_guide)
+        typer.echo()
+
+    if probe:
+        typer.echo("[--probe] 探活完成。" " 注意：Boss token 短效，探活会消耗一次请求额度。")
+    else:
+        typer.echo("[提示] 仅检查文件+过期时间，未实际探活。" " 加 --probe 可发请求验证。")
 
 
 @app.command()
