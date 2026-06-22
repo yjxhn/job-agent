@@ -127,13 +127,18 @@ def _regrab_guide_liepin() -> str:
 def _regrab_guide_zhilian() -> str:
     return (
         "│ 【智联招聘 重抓指引】\n"
-        "│   1. Chrome 访问 sou.zhaopin.com 搜索"
-        "（完成人机验证）\n"
-        "│   2. EditThisCookie 导出\n"
-        "│   3. 覆盖 data/cookies/zhilian.json\n"
-        "│   提示：Akamai 软封（"
-        "count>0 但 list 空）就重抓。\n"
-        "│   命令：job-agent import-cookies <导出文件> zhilian"
+        "│   1. Chrome 访问 sou.zhaopin.com 正常搜索"
+        "（让 Akamai sensor 活跃）\n"
+        "│   2. F12 -> Network -> 找 /c/i/search/positions ->"
+        " 右键 Copy as cURL (bash)\n"
+        "│   3. 用 cURL 里的 cookie 刷新"
+        " data/cookies/zhilian.json\n"
+        "│   命令：job-agent import-cookies <cURL文件> zhilian"
+        " --domain zhaopin.com\n"
+        "│   提示：EditThisCookie 导出的 Akamai sensor"
+        " 会被 shadowban；cURL 抓的活跃请求 cookie 才有效。\n"
+        "│   Akamai 软封（count>0 但 list 空）就重抓 cURL；"
+        "httpx 窗口期内有效，定期刷新。"
     )
 
 

@@ -302,7 +302,7 @@ class ZhilianAdapter(PlatformAdapter):
     def _api_item_to_job(self, item: dict) -> Job:
         """Map one 智联 API data.list item to a Job.
 
-        Real field structure (from browser-captured API response):
+        Real field structure (from /c/i/search/positions API response):
           name, companyName, salary60, education, workingExp, workCity,
           cityDistrict, cityId, positionURL, number, companySize,
           industryName, workType, welfareLabel, publishTime,
