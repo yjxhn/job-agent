@@ -94,7 +94,9 @@ class BossZhipinAdapter(PlatformAdapter):
 
     def __init__(self, rate_limit_seconds: int | None = None):
         self._detail_fetch_count = 0
-        self._rate_limit_seconds = rate_limit_seconds if rate_limit_seconds is not None else 1.5
+        self._rate_limit_seconds: float = (
+            rate_limit_seconds if rate_limit_seconds is not None else 1.5
+        )
         self._ANTI_BOT_BACKOFF_SECONDS = rate_limit_seconds if rate_limit_seconds else 300
 
     async def search(
@@ -132,7 +134,9 @@ class BossZhipinAdapter(PlatformAdapter):
         jobs = []
         for keyword in keywords[:2]:
             jobs.extend(
-                await self._search_keyword_api(keyword, city_code, cookie_str, rate_limit_seconds)
+                await self._search_keyword_api(
+                    keyword, city_code, cookie_str, rate_limit_seconds=self._rate_limit_seconds
+                )
             )
             await asyncio.sleep(2)  # inter-keyword rate limit
         logger.info(f"[Boss] {len(jobs)} jobs total for keywords {keywords[:2]}")
