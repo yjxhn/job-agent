@@ -276,6 +276,30 @@ def serve(port: int = typer.Option(8765, "--port")):
     start_server(port=port)
 
 
+@app.command(name="zhilian-capture")
+def zhilian_capture(
+    port: int = typer.Option(8778, "--port", help="Capture server listen port"),
+    db_path: str = typer.Option("data/agent.db", "--db", help="SQLite database path"),
+    token: str = typer.Option("", "--token", help="Auth token (empty = dev mode, no auth)"),
+):
+    """Start browser-capture server for Zhilian jobs (Tampermonkey userscript relay).
+
+    Listens on 127.0.0.1, receives jobs captured from real browser sessions
+    (bypassing Akamai anti-bot), normalizes via ZhilianAdapter, deduplicates,
+    and persists to the jobs table.
+
+    Usage flow:
+      1. Install Tampermonkey browser extension
+      2. Import tools/zhilian_capture.user.js
+      3. Browser: open https://sou.zhaopin.com/, login, and search normally
+      4. Jobs are auto-captured and stored in the DB
+      5. Ctrl+C to stop, then run `job-agent pipeline` for matching
+    """
+    from agent_core.server.capture import start_capture_server
+
+    start_capture_server(port=port, db_path=db_path, token=token)
+
+
 @app.command()
 def track(
     action: str = typer.Argument("list"),
