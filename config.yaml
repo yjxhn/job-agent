@@ -22,11 +22,11 @@ platforms:
     login_method: "none"
     rate_limit_seconds: 1
   byd:
-    enabled: false
+    enabled: true
     login_method: "none"
     rate_limit_seconds: 1
   naura:
-    enabled: false
+    enabled: true
     login_method: "none"
     rate_limit_seconds: 1
 
