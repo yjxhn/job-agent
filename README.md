@@ -275,8 +275,12 @@ job-agent schedule run  # 启动 daemon（每 interval_hours 小时一次）
 
 ### 平台支持
 
-- **已实现**: `boss_zhipin`, `liepin`, `zhilian`（POST API 直连）
-- **存根（未实现）**: `job51`, `maimai`（`NotImplementedError`）
+- **已实现（7 源）**: `boss_zhipin`, `liepin`, `zhilian`（POST API 直连）、`tencent`, `netease`（公开 API）、`byd`（比亚迪，公开 API）、`naura`（北方华创，JSON API + session cookie）
+- **存根（未实现）**: `job51`, `maimai`（`NotImplementedError`，用户暂不接入）
+- **行业调研 backlog**（verify-before-building，未盲写；详见 `docs/research/`）：
+  - **半导体**：中芯/长存（Beisen SSR，需 HTML 爬取）、华虹/兆易/中微（MokaHR 加密 API，需 JS 逆向）、长鑫（站点不可达）
+  - **新能源**：宁德时代/晶科/天合（MokaHR 加密）、隆基（WinTalent 需 SPA 上下文）、远景（Avature 无 API）、亿纬（静态 HTML）
+  - **制药**：恒瑞/百济/药明/齐鲁/复星——头部药企全部挂第三方闭源平台（智联/前程无忧/脉脉），无公开 API；百济全球站 Workday CXS API 仅覆盖海外岗位。可选替代：丁香园/京东健康（有自建技术栈，待确认）
 
 ### 其他限制
 

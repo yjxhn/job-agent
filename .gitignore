@@ -44,3 +44,7 @@ htmlcov/
 # OS
 Thumbs.db
 .DS_Store
+
+# test/verification artifacts
+coverage.json
+*.html
