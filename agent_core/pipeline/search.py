@@ -103,6 +103,14 @@ async def _search_one(pname, pc, keywords, location, dname, headless=False) -> l
             from agent_core.platforms.netease import NeteaseAdapter
 
             adapter = NeteaseAdapter()  # type: ignore[assignment]
+        elif pname == "byd":
+            from agent_core.platforms.byd import BydAdapter
+
+            adapter = BydAdapter()  # type: ignore[assignment]
+        elif pname == "naura":
+            from agent_core.platforms.naura import NauraAdapter
+
+            adapter = NauraAdapter()  # type: ignore[assignment]
         elif pname == "company_site":
             from agent_core.platforms.company_site import COMPANY_SITES, CompanySiteAdapter
 

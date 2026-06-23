@@ -21,6 +21,14 @@ platforms:
     enabled: false
     login_method: "none"
     rate_limit_seconds: 1
+  byd:
+    enabled: false
+    login_method: "none"
+    rate_limit_seconds: 1
+  naura:
+    enabled: false
+    login_method: "none"
+    rate_limit_seconds: 1
 
 search:
   directions:
@@ -46,6 +54,7 @@ company_aliases:
   zoomlion: ["中联", "中联重科", "Zoomlion"]
   tencent: ["腾讯", "Tencent", "腾讯科技", "深圳市腾讯计算机系统有限公司"]
   netease: ["网易", "NetEase", "网易集团", "网易(杭州)网络有限公司"]
+  naura: ["北方华创", "NAURA", "北方华创科技集团股份有限公司", "北京北方华创微电子装备有限公司"]
 
 matching:
   prescreen_top_n: 30
