@@ -63,7 +63,7 @@ def _pid_alive(pid: int) -> bool:
         if os.name == "nt":
             import ctypes
 
-            kernel32 = ctypes.windll.kernel32
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]  # Windows-only API
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
