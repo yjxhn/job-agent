@@ -1,12 +1,10 @@
 platforms:
   boss_zhipin:
     enabled: true
-    login_method: "playwright_cookie"
     cookie_path: "data/cookies/boss.json"
     rate_limit_seconds: 30
   liepin:
     enabled: true
-    login_method: "playwright_cookie"
     cookie_path: "data/cookies/liepin.json"
     rate_limit_seconds: 30
   job51:

@@ -57,7 +57,7 @@ platforms:
     enabled: true
     cookie_path: data/cookies/liepin.json
   job51:          # 存根（未实现）
-  zhilian:        # 存根（未实现）
+  zhilian:        # 已实现（POST /c/i/search/positions）
   maimai:         # 存根（未实现）
 
 search:
@@ -275,8 +275,8 @@ job-agent schedule run  # 启动 daemon（每 interval_hours 小时一次）
 
 ### 平台支持
 
-- **已实现**: `boss_zhipin`, `liepin`
-- **存根（未实现）**: `job51`, `zhilian`, `maimai`（`NotImplementedError`）
+- **已实现**: `boss_zhipin`, `liepin`, `zhilian`（POST API 直连）
+- **存根（未实现）**: `job51`, `maimai`（`NotImplementedError`）
 
 ### 其他限制
 
