@@ -195,6 +195,11 @@ def test_search_parses_list(monkeypatch):
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
+    monkeypatch.setattr(
+        zhilian,
+        "_load_cookies",
+        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
+    )
 
     adapter = ZhilianAdapter(rate_limit_seconds=0)
     jobs = asyncio.run(
@@ -273,6 +278,11 @@ def test_anti_bot_count_zero_triggers_backoff(monkeypatch):
     monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
     monkeypatch.setattr(zhilian, "_notify_anti_bot", fake_anti_bot)
     monkeypatch.setattr(zhilian, "_notify_cookie_expired", fake_cookie_expired)
+    monkeypatch.setattr(
+        zhilian,
+        "_load_cookies",
+        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
+    )
 
     async def fake_sleep(seconds: float) -> None:
         pass
@@ -320,6 +330,11 @@ def test_anti_bot_count_positive_list_empty(monkeypatch):
     monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
     monkeypatch.setattr(zhilian, "_notify_anti_bot", fake_anti_bot)
     monkeypatch.setattr(zhilian, "_notify_cookie_expired", lambda: None)
+    monkeypatch.setattr(
+        zhilian,
+        "_load_cookies",
+        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
+    )
 
     async def fake_sleep(seconds: float) -> None:
         pass
