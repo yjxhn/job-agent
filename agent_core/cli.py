@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import sys
 
 import typer
@@ -19,6 +20,8 @@ def _setup(config_path="config.yaml"):
     if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
+    # Create log dir so first run (and CI, where data/ is absent) doesn't crash
+    os.makedirs("data", exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
