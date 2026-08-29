@@ -57,3 +57,9 @@ coverage.json
 .playwright-mcp/
 misc/
 website/screenshots/
+
+# Internal docs (ai-assistant memory / retrospects with private details)
+AGENTS.md
+docs/development-plan.md
+docs/unfinished-work.md
+docs/retrospective-*.md
