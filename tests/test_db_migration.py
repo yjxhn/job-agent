@@ -57,12 +57,14 @@ def test_clean_db_migrates_to_latest(tmp_db):
     ):
         assert expected in indexes, f"Index '{expected}' should exist"
 
-    # Verify the version trace: should have entries for v1 and v2
+    # Verify the version trace: every migration from v1 to SCHEMA_VERSION
+    # should have an entry.
     versions = [
         row["version"]
         for row in conn.execute("SELECT version FROM schema_version ORDER BY version")
     ]
-    assert versions == [1, 2], f"Expected versions [1, 2], got {versions}"
+    expected = list(range(1, SCHEMA_VERSION + 1))
+    assert versions == expected, f"Expected versions {expected}, got {versions}"
 
     conn.close()
 
@@ -135,9 +137,9 @@ def test_migrate_is_idempotent(tmp_db):
     migrate(conn)
     v2_count = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
 
-    assert v1_count == v2_count == SCHEMA_VERSION, (
-        f"Version count should remain {SCHEMA_VERSION}, " f"got v1={v1_count}, v2={v2_count}"
-    )
+    assert (
+        v1_count == v2_count == SCHEMA_VERSION
+    ), f"Version count should remain {SCHEMA_VERSION}, got v1={v1_count}, v2={v2_count}"
 
     conn.close()
 
@@ -150,10 +152,9 @@ def test_schema_version_matches_migrations():
     from agent_core.storage import db
 
     max_migration = max(v for v, _ in db._MIGRATIONS)
-    assert db.SCHEMA_VERSION == max_migration, (
-        f"SCHEMA_VERSION ({db.SCHEMA_VERSION}) does not match "
-        f"highest migration ({max_migration})"
-    )
+    assert (
+        db.SCHEMA_VERSION == max_migration
+    ), f"SCHEMA_VERSION ({db.SCHEMA_VERSION}) does not match highest migration ({max_migration})"
 
 
 # ---------- WAL mode ----------

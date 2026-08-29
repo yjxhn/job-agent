@@ -17,6 +17,33 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Loggers to suppress during probe (platform adapters, browser helpers).
+# Their INFO logs (page counts, navigation URLs, etc.) drown out the
+# check-cookies result table; we only surface warnings and errors.
+_PROBE_NOISY_LOGGERS = [
+    "agent_core.platforms.boss_zhipin",
+    "agent_core.platforms.liepin",
+    "agent_core.platforms.zhilian",
+    "agent_core.platforms.zhilian_browser",
+]
+
+
+class _SuppressNoisyLogs:
+    """Context manager: temporarily raise level on noisy loggers to WARNING."""
+
+    def __enter__(self):
+        self._saved: dict[str, int] = {}
+        for name in _PROBE_NOISY_LOGGERS:
+            lg = logging.getLogger(name)
+            self._saved[name] = lg.level
+            lg.setLevel(logging.WARNING)
+        return self
+
+    def __exit__(self, *args):
+        for name, lvl in self._saved.items():
+            logging.getLogger(name).setLevel(lvl)
+
+
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
@@ -50,7 +77,7 @@ class PlatformCookieSpec:
     display_name: str
     needs_cookie: bool
     critical_cookies: set[str]  # key session-cookie names whose expiry we check
-    cookie_path: str = ""  # relative to project root, e.g. "data/cookies/boss.json"
+    cookie_path: str = ""  # relative to project root, e.g. "data/cookies/boss_zhipin.json"
 
     @property
     def path_obj(self) -> Path:
@@ -64,7 +91,7 @@ PLATFORM_SPECS: dict[str, PlatformCookieSpec] = {
         display_name="boss 直聘",  # Boss直聘
         needs_cookie=True,
         critical_cookies={"wt2", "__zp_stoken__"},
-        cookie_path="data/cookies/boss.json",
+        cookie_path="data/cookies/boss_zhipin.json",
     ),
     "liepin": PlatformCookieSpec(
         platform_key="liepin",
@@ -77,7 +104,7 @@ PLATFORM_SPECS: dict[str, PlatformCookieSpec] = {
         platform_key="zhilian",
         display_name="智联招聘",  # 智联招聘
         needs_cookie=True,
-        critical_cookies={"x-zp-client-id", "FSSBBIl1UgzbN7NS"},
+        critical_cookies={"x-zp-client-id", "at", "rt"},
         cookie_path="data/cookies/zhilian.json",
     ),
     "tencent": PlatformCookieSpec(
@@ -89,7 +116,28 @@ PLATFORM_SPECS: dict[str, PlatformCookieSpec] = {
     ),
     "netease": PlatformCookieSpec(
         platform_key="netease",
-        display_name="网易招聘",  # 网易招聘
+        display_name="网易招聘",
+        needs_cookie=False,
+        critical_cookies=set(),
+        cookie_path="",
+    ),
+    "byd": PlatformCookieSpec(
+        platform_key="byd",
+        display_name="比亚迪",
+        needs_cookie=False,
+        critical_cookies=set(),
+        cookie_path="",
+    ),
+    "naura": PlatformCookieSpec(
+        platform_key="naura",
+        display_name="北方华创",
+        needs_cookie=False,
+        critical_cookies=set(),
+        cookie_path="",
+    ),
+    "yofc": PlatformCookieSpec(
+        platform_key="yofc",
+        display_name="长飞光纤",
         needs_cookie=False,
         critical_cookies=set(),
         cookie_path="",
@@ -107,7 +155,7 @@ def _regrab_guide_boss() -> str:
         "│   1. Chrome 登录 zhipin.com 正常搜索浏览"
         "（刷新 __zp_stoken__）\n"
         "│   2. EditThisCookie 导出全部 cookie\n"
-        "│   3. 覆盖 data/cookies/boss.json\n"
+        "│   3. 覆盖 data/cookies/boss_zhipin.json\n"
         "│   提示：__zp_stoken__ 短效（约数天），"
         "code:37 或 0 结果就重抓。\n"
         "│   命令：job-agent import-cookies <导出文件> boss_zhipin"
@@ -127,23 +175,18 @@ def _regrab_guide_liepin() -> str:
 def _regrab_guide_zhilian() -> str:
     return (
         "│ 【智联招聘 重抓指引】\n"
-        "│   1. Chrome 访问 sou.zhaopin.com 正常搜索"
-        "（让 Akamai sensor 活跃）\n"
-        "│   2. F12 -> Network -> 找 /c/i/search/positions ->"
-        " 右键 Copy as cURL (bash)\n"
-        "│   3. 用 cURL 里的 cookie 刷新"
-        " data/cookies/zhilian.json\n"
-        "│   命令：job-agent import-cookies <cURL文件> zhilian"
-        " --domain zhaopin.com\n"
-        "│   提示：EditThisCookie 导出的 Akamai sensor"
-        " 会被 shadowban；cURL 抓的活跃请求 cookie 才有效。\n"
-        "│   Akamai 软封（count>0 但 list 空）就重抓 cURL；"
-        "httpx 窗口期内有效，定期刷新。"
+        "│   智联使用浏览器持久化登录，无需手动导出 cookie。\n"
+        "│   1. 运行: job-agent login --platform zhilian\n"
+        "│   2. 在打开的浏览器中扫码或账号登录 zhaopin.com\n"
+        "│   3. 登录后 cookie 自动保存到浏览器 profile\n"
+        "│   提示：profile 持久化在 data/zhilian_browser_profile/，\n"
+        "│   登录一次长期可用。如失效，删除该目录后重新登录。\n"
+        "│   命令：job-agent check-cookies --probe 验证"
     )
 
 
 def _regrab_guide_no_cookie(display_name: str) -> str:
-    return f"│ 【{display_name}】\n" "│   公开 API，无需 cookie。"
+    return f"│ 【{display_name}】\n│   公开 API，无需 cookie。"
 
 
 REGRAB_GUIDES: dict[str, str] = {
@@ -273,6 +316,19 @@ def _check_single_platform(spec: PlatformCookieSpec) -> CookieHealthResult:
         result.details.append("公开API，无需cookie")  # 公开API，无需cookie
         return result
 
+    if spec.platform_key == "zhilian":
+        # Zhilian search is browser-profile based; there is intentionally no
+        # data/cookies/zhilian.json. A file check would always report MISSING
+        # even when the persistent browser login is perfectly valid.
+        profile_dir = Path("data/zhilian_browser_profile")
+        result.status = CookieStatus.UNVERIFIED
+        result.details.append(
+            "浏览器持久化登录"
+            + ("（profile 存在）" if profile_dir.exists() else "（profile 不存在）")
+        )
+        result.details.append("不依赖 data/cookies/zhilian.json；运行 --probe 实测登录态")
+        return result
+
     cookies = _load_cookie_file(spec.cookie_path)
     if cookies is None:
         result.status = CookieStatus.MISSING
@@ -362,43 +418,23 @@ async def _probe_platform(spec: PlatformCookieSpec, config_location: str) -> Coo
     result = _check_single_platform(spec)
     if not result.needs_cookie:
         return result
-    if not result.file_exists:
+    if spec.platform_key != "zhilian" and not result.file_exists:
         return result
 
     try:
         jobs: list[Any] = []
-        if spec.platform_key == "boss_zhipin":
-            from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+        with _SuppressNoisyLogs():
+            from agent_core.platforms.registry import create_adapter, is_registered
 
-            boss_adapter = BossZhipinAdapter()
-            jobs = await boss_adapter.search(
+            if not is_registered(spec.platform_key):
+                return result
+            adapter = create_adapter(spec.platform_key)
+            jobs = await adapter.search(
                 keywords=["测试"],
                 location=config_location,
                 cookie_path=spec.cookie_path,
                 rate_limit_seconds=30,
             )
-        elif spec.platform_key == "liepin":
-            from agent_core.platforms.liepin import LiepinAdapter
-
-            liepin_adapter = LiepinAdapter()
-            jobs = await liepin_adapter.search(
-                keywords=["测试"],
-                location=config_location,
-                cookie_path=spec.cookie_path,
-                rate_limit_seconds=30,
-            )
-        elif spec.platform_key == "zhilian":
-            from agent_core.platforms.zhilian import ZhilianAdapter
-
-            zhilian_adapter = ZhilianAdapter()
-            jobs = await zhilian_adapter.search(
-                keywords=["测试"],
-                location=config_location,
-                cookie_path=spec.cookie_path,
-                rate_limit_seconds=30,
-            )
-        else:
-            return result
 
         if jobs:
             result.details.append(f"探活成功: 返回 {len(jobs)} 个职位")  # 探活成功: 返回 N 个职位
@@ -422,17 +458,20 @@ async def _probe_platform(spec: PlatformCookieSpec, config_location: str) -> Coo
 # ---------------------------------------------------------------------------
 
 
-async def check_cookies(config: Any, probe: bool = False) -> list[CookieHealthResult]:
-    """Check cookie health for all enabled platforms.
+async def check_cookies(
+    config: Any, probe: bool = False, platform_filter: str | None = None
+) -> list[CookieHealthResult]:
+    """Check cookie health for enabled platforms.
 
     Args:
         config: The project Config object (from config.py).
         probe: If True, send one real search request per platform to confirm
                the cookie actually works (detects soft bans, count=0, etc.).
                Default False — Boss tokens are short-lived, avoid wasting them.
+        platform_filter: If set, only check this one platform key (e.g. 'boss_zhipin').
 
     Returns:
-        A list of CookieHealthResult, one per enabled platform.
+        A list of CookieHealthResult, one per checked platform.
     """
     import copy as _copy
 
@@ -440,6 +479,8 @@ async def check_cookies(config: Any, probe: bool = False) -> list[CookieHealthRe
 
     for pname, pc in config.platforms.items():
         if not pc.enabled:
+            continue
+        if platform_filter and pname != platform_filter:
             continue
 
         spec = PLATFORM_SPECS.get(pname)
@@ -495,6 +536,9 @@ def diagnose_empty_results(config: Any) -> str | None:
         spec = PLATFORM_SPECS.get(pname)
         if spec is None or not spec.needs_cookie:
             continue
+        if spec.platform_key == "zhilian":
+            # Browser-mode auth; don't blame a missing cookie file here.
+            continue
 
         spec_copy = _copy.copy(spec)
         if pc.cookie_path:
@@ -510,7 +554,7 @@ def diagnose_empty_results(config: Any) -> str | None:
     lines: list[str] = []
     lines.append("")
     lines.append("┌" + "─" * 58 + "┐")
-    lines.append("│  ⚠️  搜索返回 0 个职位" "，检测到 cookie 问题：")
+    lines.append("│  ⚠️  搜索返回 0 个职位，检测到 cookie 问题：")
     lines.append("│")
 
     for r in issues:

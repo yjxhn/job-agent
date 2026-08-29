@@ -250,7 +250,7 @@ def test_regrab_guide_boss_has_steps():
     guide = get_regrab_guide("boss_zhipin")
     assert "zhipin.com" in guide
     assert "EditThisCookie" in guide
-    assert "boss.json" in guide
+    assert "boss_zhipin.json" in guide
 
 
 def test_regrab_guide_liepin_has_steps():
@@ -261,8 +261,8 @@ def test_regrab_guide_liepin_has_steps():
 
 def test_regrab_guide_zhilian_has_steps():
     guide = get_regrab_guide("zhilian")
-    assert "sou.zhaopin.com" in guide
-    assert "Akamai" in guide
+    assert "zhaopin.com" in guide
+    assert "login --platform zhilian" in guide  # browser-profile login (not cURL/at-rt)
 
 
 def test_regrab_guide_public_api():
@@ -298,7 +298,7 @@ async def test_check_cookies_no_probe_excludes_public():
 
 @pytest.mark.asyncio
 async def test_check_cookies_missing_file_reports_missing(tmp_path):
-    boss_path = tmp_path / "cookies" / "boss.json"
+    boss_path = tmp_path / "cookies" / "boss_zhipin.json"
     boss_path.parent.mkdir(parents=True, exist_ok=True)
     # Don't create the file
     config = Config(
@@ -316,7 +316,7 @@ async def test_check_cookies_missing_file_reports_missing(tmp_path):
 
 @pytest.mark.asyncio
 async def test_check_cookies_valid_file_reports_valid(tmp_path):
-    boss_path = tmp_path / "cookies" / "boss.json"
+    boss_path = tmp_path / "cookies" / "boss_zhipin.json"
     boss_path.parent.mkdir(parents=True, exist_ok=True)
     far_future = time.time() + 365 * 86400
     _write_cookie_file(
@@ -387,7 +387,7 @@ def test_diagnose_empty_results_no_issues():
 
 def test_diagnose_empty_results_with_issues(tmp_path):
     """Missing cookie file should trigger diagnosis."""
-    boss_path = tmp_path / "boss.json"
+    boss_path = tmp_path / "boss_zhipin.json"
     # Don't create file
 
     config = Config(
@@ -465,9 +465,10 @@ def test_cookie_platforms_have_regrab_guides():
         if spec.needs_cookie:
             guide = get_regrab_guide(key)
             assert len(guide) > 20, f"{key} regrab guide too short"
-            assert "EditThisCookie" in guide or key in (
-                "zhilian",
-            ), f"{key} missing EditThisCookie mention"
+            # zhilian uses cURL-based guide, not EditThisCookie
+            assert (
+                "EditThisCookie" in guide or "cURL" in guide or key in ("zhilian",)
+            ), f"{key} missing extraction method mention"
 
 
 def test_cookie_platforms_have_critical_cookies():

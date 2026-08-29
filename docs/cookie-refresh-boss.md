@@ -28,7 +28,7 @@ BOSS直聘的关键 session cookie 有两类：
 当搜索 API 返回 `"code":37` 时，表示触发了 BOSS 直聘的反爬挑战。代码检测逻辑（`boss_zhipin.py` 第 196-214 行）：
 
 - `code == 37` 或 `zpData` 中包含 `seed`/`name`/`ts` 字段
-- 触发后自动等待 300 秒退避，避免重复被封
+- 触发后自动等待 120 秒退避，避免重复被封
 - 极端情况下 `__zp_stoken__` 即使有效也会触发，说明需要更新 cookie
 
 ---
@@ -91,15 +91,9 @@ BOSS直聘的关键 session cookie 有两类：
 5. 在弹出的 Export 对话框中，确认格式为 **JSON**
 6. 点击 **Copy** 按钮
 7. 在项目目录下创建新文件：
-   ```bash
-   # 假设你在 agent-core 目录下
-   # 将复制的 JSON 粘贴保存
-   code data/cookies/boss_export.json
-   ```
-   或者在终端直接用以下方式保存（把剪贴板内容写入文件）：
    ```powershell
-   # PowerShell
-   Get-Clipboard > data/cookies/boss_export.json
+   # PowerShell：将剪贴板中的 JSON 保存为 UTF-8 文件
+   Get-Clipboard | Set-Content -Encoding UTF8 data/cookies/boss_export.json
    ```
 8. 确认文件是有效的 JSON 数组（开头是 `[`，包含几十条 cookie）
 
@@ -112,8 +106,8 @@ BOSS直聘的关键 session cookie 有两类：
 - `wbg` — BOSS 网关 token
 - `boss_token` — BOSS 平台 token
 
-可以用以下命令快速检查：
-```bash
+可以用以下命令快速检查（PowerShell 或 bash 均可）：
+```powershell
 python -c "import json; cookies=json.load(open('data/cookies/boss_export.json')); names={c['name'] for c in cookies}; print('缺失wt2' if 'wt2' not in names else 'wt2 OK'); print('缺失__zp_stoken__' if '__zp_stoken__' not in names else '__zp_stoken__ OK')"
 ```
 
@@ -123,7 +117,7 @@ python -c "import json; cookies=json.load(open('data/cookies/boss_export.json'))
 
 ### 方式 A：CLI 命令（推荐）
 
-```bash
+```powershell
 job-agent import-cookies data/cookies/boss_export.json boss_zhipin
 ```
 
@@ -131,14 +125,14 @@ job-agent import-cookies data/cookies/boss_export.json boss_zhipin
 
 ### 方式 B：独立脚本
 
-```bash
-python import_cookies.py data/cookies/boss_export.json boss_zhipin
+```powershell
+python scripts/import_cookies.py data/cookies/boss_export.json boss_zhipin
 ```
 
 ### 成功输出示例
 
 ```
-[OK] 42 cookies -> data/cookies\boss.json
+[OK] 42 cookies -> data\cookies\boss_zhipin.json
      session cookies: ['__zp_stoken__', 'boss_token', 'wbg', 'wt2']
      [OK] 登录态 cookie 存在。
 ```
@@ -151,7 +145,7 @@ python import_cookies.py data/cookies/boss_export.json boss_zhipin
 
 ### 方式 A：检查 cookie 健康状态
 
-```bash
+```powershell
 job-agent check-cookies
 ```
 
@@ -159,7 +153,7 @@ job-agent check-cookies
 
 ### 方式 B：探活（可选，会消耗一次搜索请求）
 
-```bash
+```powershell
 job-agent check-cookies --probe
 ```
 
@@ -167,14 +161,14 @@ job-agent check-cookies --probe
 
 ### 方式 C：直接执行搜索
 
-```bash
+```powershell
 job-agent search
 ```
 
 观察日志输出：
 - `API code=0` — 搜索正常，cookie 有效
-- `API code=37` — 触发反爬，cookie 有问题，需要 300 秒退避后重试或重新抓取
-- `No cookie at data/cookies/boss.json` — 文件路径不对或导入失败
+- `API code=37` — 触发反爬，cookie 有问题，需要 120 秒退避后重试或重新抓取
+- `No cookie at data/cookies/boss_zhipin.json` — 文件路径不对或导入失败
 
 ---
 
@@ -182,7 +176,7 @@ job-agent search
 
 ### Q1: 出现 code 37 反爬怎么办？
 
-1. 程序已内置 300 秒退避机制，等 5 分钟
+1. 程序已内置 120 秒退避机制，等 2 分钟
 2. 如果重试后仍然 code 37：
    - 按本文步骤重新抓取 cookie（特别是 `__zp_stoken__` 过期了）
    - 确保步骤 2 中确实浏览了搜索结果页（这是生成 `__zp_stoken__` 的必要步骤）
@@ -224,6 +218,8 @@ Playwright 的 CDP 检测是在底层协议级别的。即使修改 User-Agent�
 - [ ] 搜索并浏览结果页 2-3 页
 - [ ] Cookie-Editor 在 zhipin.com 页面上导出 JSON
 - [ ] 导出文件包含 wt2、__zp_stoken__、wbg、boss_token
-- [ ] `job-agent import-cookies data/cookies/boss_export.json boss_zhipin` 执行成功
+- [ ] `job-agent import-cookies data/cookies/boss_export.json boss_zhipin` 执行成功，输出 `boss_zhipin.json`
 - [ ] `job-agent check-cookies` 显示 wt2 和 __zp_stoken__ 有效
 - [ ] `job-agent search` 返回 code 0 且有职位结果
+
+> 注：cookie 文件路径在 `config.yaml` 的 `platforms.boss_zhipin.cookie_path`，与导入工具输出名（`boss_zhipin.json`）一致。

@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
 
-from agent_core.platforms.base import Job, PlatformAdapter
+from agent_core.platforms.base import Job, PlatformAdapter, parse_salary_text
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +40,19 @@ PORTAL_ID = "16b1029a-bde1-4b4b-b2d1-f4fc052b5202"
 class NauraAdapter(PlatformAdapter):
     name = "naura"
 
-    def __init__(self, rate_limit_seconds: int | None = None):
+    def __init__(self, rate_limit_seconds: int | None = None, max_pages: int | None = None):
         self._rate_limit_seconds = rate_limit_seconds if rate_limit_seconds is not None else 1.0
+        self.max_pages = max_pages if max_pages and max_pages > 0 else 1
         self._cj: CookieJar | None = None
         self._opener: urllib.request.OpenerDirector | None = None
         self._session_ready = False
 
-    def _ensure_session(self) -> urllib.request.OpenerDirector:
-        """Get or create an opener with a valid session cookie."""
+    async def _ensure_session(self) -> urllib.request.OpenerDirector:
+        """Get or create an opener with a valid session cookie.
+
+        Must be called from async context so the event loop can drive
+        the executor future to completion.
+        """
         if self._session_ready and self._opener is not None:
             return self._opener
 
@@ -70,24 +75,21 @@ class NauraAdapter(PlatformAdapter):
             with self._opener.open(req, timeout=20) as r:  # type: ignore[union-attr]  # nosec B310
                 r.read()
 
-        loop = asyncio.get_event_loop()
-        init_future = loop.run_in_executor(None, _init_session)
-
-        def _on_done(fut):
+        loop = asyncio.get_running_loop()
+        # 2026-08-11: 8 平台并发搜索时 TLS 握手瞬态失败（handshake timeout/read
+        # timeout/UNEXPECTED_EOF 三种），单跑验证均正常。失败重试 1 次（间隔 2s）
+        # 可恢复大部分并发瞬态错误。
+        for attempt in range(2):
             try:
-                fut.result()
+                await loop.run_in_executor(None, _init_session)
                 self._session_ready = True
+                break
             except Exception as e:
-                logger.error(f"[NAURA] Session init failed: {e}")
+                logger.error(f"[NAURA] Session init failed (attempt {attempt + 1}/2): {e}")
                 self._session_ready = False
-
-        # Block until session is ready (adapter search is async anyway)
-        try:
-            init_future.result(timeout=15)  # type: ignore[call-arg]
-            self._session_ready = True
-        except Exception as e:
-            logger.error(f"[NAURA] Session init failed: {e}")
-            self._session_ready = False
+                self._opener = None  # prevent API calls without valid session
+                if attempt == 0:
+                    await asyncio.sleep(2)
 
         return self._opener  # type: ignore[return-value]
 
@@ -104,7 +106,7 @@ class NauraAdapter(PlatformAdapter):
             self._rate_limit_seconds = rate_limit_seconds
 
         # Ensure we have a session cookie before making API calls
-        self._ensure_session()
+        await self._ensure_session()
 
         jobs: list[Job] = []
         for keyword in keywords[:3]:
@@ -117,70 +119,77 @@ class NauraAdapter(PlatformAdapter):
         return jobs
 
     async def _search_keyword_api(self, keyword: str, location: str) -> list[Job]:
-        """Call NAURA POST /api/JobAd/GetJobAdPageList."""
+        """Call NAURA POST /api/JobAd/GetJobAdPageList with paging."""
         if self._opener is None:
             logger.error("[NAURA] No session opener available")
             return []
 
-        body = {
-            "Category": ["1"],
-            "PageIndex": 0,
-            "PageSize": 20,
-            "KeyWords": keyword,
-            "SpecialType": 0,
-            "PortalId": PORTAL_ID,
-            "DisplayFields": ["Category"],
-        }
-        body_bytes = json.dumps(body).encode("utf-8")
-
-        req = urllib.request.Request(
-            API_SEARCH,
-            data=body_bytes,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/149.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json;charset=UTF-8",
-                "Referer": f"{BASE_URL}/campus",
-                "Origin": BASE_URL,
-            },
-            method="POST",
-        )
-
-        def _fetch() -> bytes:
-            with self._opener.open(req, timeout=20) as r:  # type: ignore[union-attr]  # nosec B310
-                return r.read()
-
-        try:
-            raw = await asyncio.to_thread(_fetch)
-            obj = json.loads(raw.decode("utf-8", "replace"))
-        except urllib.error.HTTPError as e:
-            logger.error(f"[NAURA] HTTP {e.code} for '{keyword}': {e.reason}")
-            return []
-        except Exception as e:
-            logger.error(f"[NAURA] API error for '{keyword}': {e}")
-            return []
-
-        code = obj.get("Code")
-        items = obj.get("Data", [])
-        total = obj.get("Count", 0)
-
-        if code != 200:
-            logger.warning(f"[NAURA] API Code={code} for '{keyword}'")
-            return []
-
         jobs: list[Job] = []
-        for item in items:
-            try:
-                jobs.append(self._api_item_to_job(item))
-            except Exception as e:
-                logger.debug(f"[NAURA] Skip item: {e}")
-                continue
+        for page_index in range(self.max_pages):
+            body = {
+                "Category": ["1"],
+                "PageIndex": page_index,
+                "PageSize": 20,
+                "KeyWords": keyword,
+                "SpecialType": 0,
+                "PortalId": PORTAL_ID,
+                "DisplayFields": ["Category"],
+            }
+            body_bytes = json.dumps(body).encode("utf-8")
 
-        logger.info(f"[NAURA] '{keyword}': {len(jobs)} jobs (total={total})")
+            req = urllib.request.Request(
+                API_SEARCH,
+                data=body_bytes,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/149.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/json;charset=UTF-8",
+                    "Referer": f"{BASE_URL}/campus",
+                    "Origin": BASE_URL,
+                },
+                method="POST",
+            )
+
+            def _fetch() -> bytes:
+                with self._opener.open(req, timeout=20) as r:  # type: ignore[union-attr]  # nosec B310
+                    return r.read()
+
+            try:
+                raw = await asyncio.to_thread(_fetch)
+                obj = json.loads(raw.decode("utf-8", "replace"))
+            except urllib.error.HTTPError as e:
+                logger.error(f"[NAURA] HTTP {e.code} for '{keyword}': {e.reason}")
+                return jobs
+            except Exception as e:
+                logger.error(f"[NAURA] API error for '{keyword}': {e}")
+                return jobs
+
+            code = obj.get("Code")
+            items = obj.get("Data", [])
+            total = obj.get("Count", 0)
+
+            if code != 200:
+                logger.warning(f"[NAURA] API Code={code} for '{keyword}'")
+                return jobs
+
+            for item in items:
+                try:
+                    jobs.append(self._api_item_to_job(item))
+                except Exception as e:
+                    logger.debug(f"[NAURA] Skip item: {e}")
+                    continue
+
+            logger.info(
+                f"[NAURA] '{keyword}' page {page_index + 1}: " f"{len(items)} jobs (total={total})"
+            )
+            if not items or page_index >= self.max_pages - 1:
+                break
+            await asyncio.sleep(self._rate_limit_seconds)
+
         return jobs
 
     def _api_item_to_job(self, item: dict) -> Job:
@@ -226,22 +235,24 @@ class NauraAdapter(PlatformAdapter):
             desc_parts.append("【任职要求】")
             desc_parts.append(require)
 
-        description = "\n".join(desc_parts)
-
         change_date = item.get("ChangeDate", "")
         if change_date:
             desc_parts.append(f"\n更新: {change_date}")
 
         description = "\n".join(desc_parts)
 
-        # NAURA list API Salary is often None; handle gracefully
-        # No salary parsing needed since it's usually null
+        # Salary is often empty; parse it when present so min-salary
+        # filtering can work. None when unavailable.
+        sal_min, sal_max = parse_salary_text(item.get("Salary", "") or "")
 
         # URL
         item_id = item.get("Id", "")
         url = f"{BASE_URL}/campus/position/{item_id}" if item_id else ""
 
-        unique_id = hashlib.md5((f"naura{job_ad_id}").encode()).hexdigest()[:16]  # nosec B324
+        fallback = f"{title}|{location}" if title else job_ad_id
+        unique_id = hashlib.md5(  # nosec B324 -- job ID, not security
+            (f"naura{job_ad_id or fallback}").encode()
+        ).hexdigest()[:16]
 
         job = self.normalize(
             {
@@ -249,24 +260,14 @@ class NauraAdapter(PlatformAdapter):
                 "title": title,
                 "company": "北方华创",
                 "location": location,
-                "salary_min": None,
-                "salary_max": None,
+                "salary_min": sal_min,
+                "salary_max": sal_max,
                 "description": description,
                 "url": url,
             }
         )
         job.security_id = job_ad_id
+        job.lid = url  # detail URL so fetch_full_jd can actually run
+        job.published_at = item.get("ChangeDate", "") or ""
+        job.education = item.get("Degree", "") or ""
         return job
-
-    def normalize(self, raw: dict) -> Job:
-        return Job(
-            id=raw.get("id", ""),
-            title=raw.get("title", ""),
-            company=raw.get("company", ""),
-            location=raw.get("location", ""),
-            salary_min=raw.get("salary_min"),
-            salary_max=raw.get("salary_max"),
-            description=raw.get("description", ""),
-            platforms=[self.name],
-            urls={self.name: raw.get("url", "")},
-        )

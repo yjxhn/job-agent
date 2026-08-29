@@ -4,6 +4,10 @@ data/
 # Output files (generated resumes, reports, exports)
 output/
 
+# User resumes and offer inputs (personal data, never publish)
+resumes/
+offers/
+
 # Python bytecode
 __pycache__/
 *.pyc
@@ -48,3 +52,8 @@ Thumbs.db
 # test/verification artifacts
 coverage.json
 *.html
+
+# Local MCP screenshots / personal working artifacts
+.playwright-mcp/
+misc/
+website/screenshots/

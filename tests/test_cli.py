@@ -76,7 +76,6 @@ def test_cli_schedule_on_off(tmp_path, monkeypatch):
     assert state_file.exists()
 
     # Verify state file has enabled=True
-    import json
 
     with open(state_file) as f:
         state = json.load(f)
@@ -150,7 +149,9 @@ def test_cli_search_with_mock_provider(tmp_path, monkeypatch):
     _mock_provider(monkeypatch)
 
     # Mock search_all to return fake jobs
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         now = datetime.now(UTC)
         return [
             Job(
@@ -171,25 +172,111 @@ def test_cli_search_with_mock_provider(tmp_path, monkeypatch):
 
     monkeypatch.setattr("agent_core.pipeline.search.search_all", fake_search_all)
 
-    result = runner.invoke(app, ["search", "--direction", "equipment_amr"])
+    result = runner.invoke(app, ["search", "--direction", "equipment_amr", "--keyword", "AMR"])
     assert result.exit_code == 0
     assert "Found" in result.stdout
     assert "AMR AGV" in result.stdout or "AMR" in result.stdout
 
 
 def test_cli_search_no_args(tmp_path, monkeypatch):
-    """Test search command with no arguments."""
+    """Test search command requires --keyword."""
     _mock_provider(monkeypatch)
 
-    # Mock search_all to return empty list
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
-        return []
+    result = runner.invoke(app, ["search"])
+    assert result.exit_code != 0
+    assert "Missing option" in (result.stdout + (result.stderr or ""))
+
+
+def test_cli_search_with_company_filter(tmp_path, monkeypatch):
+    """Test search command with --company filter."""
+    from datetime import datetime
+
+    from agent_core.platforms.base import Job
+
+    _mock_provider(monkeypatch)
+
+    now = datetime.now(UTC)
+    fake_jobs = [
+        Job(
+            id="1",
+            title="无人机工程师",
+            company="大疆创新",
+            company_normalized="大疆",
+            description="无人机研发",
+            direction="equipment_amr",
+            platforms=["boss_zhipin"],
+            urls={"boss_zhipin": "http://x"},
+            salary_min=20000,
+            salary_max=30000,
+            first_seen=now,
+            last_seen=now,
+        ),
+        Job(
+            id="2",
+            title="通信工程师",
+            company="华为技术",
+            company_normalized="华为",
+            description="5G研发",
+            direction="equipment_amr",
+            platforms=["boss_zhipin"],
+            urls={"boss_zhipin": "http://y"},
+            salary_min=25000,
+            salary_max=35000,
+            first_seen=now,
+            last_seen=now,
+        ),
+    ]
+
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
+        return list(fake_jobs)
 
     monkeypatch.setattr("agent_core.pipeline.search.search_all", fake_search_all)
 
-    result = runner.invoke(app, ["search"])
+    result = runner.invoke(app, ["search", "--keyword", "工程师", "--company", "大疆"])
     assert result.exit_code == 0
-    assert "Found" in result.stdout
+    assert "Found 2 jobs, 1 match company '大疆'" in result.stdout
+    assert "大疆创新" in result.stdout
+    assert "华为技术" not in result.stdout
+
+
+def test_cli_search_with_company_no_match(tmp_path, monkeypatch):
+    """Test search command with --company that matches nothing."""
+    from datetime import datetime
+
+    from agent_core.platforms.base import Job
+
+    _mock_provider(monkeypatch)
+
+    now = datetime.now(UTC)
+    fake_jobs = [
+        Job(
+            id="1",
+            title="工程师",
+            company="华为技术",
+            company_normalized="华为",
+            description="研发",
+            direction="equipment_amr",
+            platforms=["boss_zhipin"],
+            urls={"boss_zhipin": "http://x"},
+            salary_min=20000,
+            salary_max=30000,
+            first_seen=now,
+            last_seen=now,
+        ),
+    ]
+
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
+        return list(fake_jobs)
+
+    monkeypatch.setattr("agent_core.pipeline.search.search_all", fake_search_all)
+
+    result = runner.invoke(app, ["search", "--keyword", "工程师", "--company", "大疆"])
+    assert result.exit_code == 0
+    assert "Found 1 jobs, 0 match company '大疆'" in result.stdout
 
 
 def test_cli_pipeline_with_mock(tmp_path, monkeypatch):
@@ -197,7 +284,7 @@ def test_cli_pipeline_with_mock(tmp_path, monkeypatch):
     _mock_provider(monkeypatch)
 
     # Mock orchestrator to return fake pipeline results
-    async def fake_run_pipeline(config, provider, stages=None):
+    async def fake_run_pipeline(config, provider, stages=None, **kwargs):
         return {
             "matched": [
                 {
@@ -221,7 +308,7 @@ def test_cli_pipeline_no_results(tmp_path, monkeypatch):
     _mock_provider(monkeypatch)
 
     # Mock orchestrator to return no matches
-    async def fake_run_pipeline(config, provider, stages=None):
+    async def fake_run_pipeline(config, provider, stages=None, **kwargs):
         return {"matched": []}
 
     monkeypatch.setattr("agent_core.pipeline.orchestrator.run_pipeline", fake_run_pipeline)
@@ -267,10 +354,7 @@ def test_cli_rematch_single_job(tmp_path, monkeypatch):
 
     monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
-    # Mock prescreen and match_jobs
-    def fake_prescreen(jobs, config):
-        return jobs
-
+    # Mock match_jobs
     async def fake_match_jobs(jobs, config, provider):
         return [
             {
@@ -282,7 +366,6 @@ def test_cli_rematch_single_job(tmp_path, monkeypatch):
             }
         ], []
 
-    monkeypatch.setattr("agent_core.pipeline.prescreen.prescreen", fake_prescreen)
     monkeypatch.setattr("agent_core.pipeline.match.match_jobs", fake_match_jobs)
 
     result = runner.invoke(app, ["rematch", "job1"])
@@ -363,6 +446,16 @@ def test_cli_tailor(tmp_path, monkeypatch):
     def fake_open_job_link(job):
         pass  # Do nothing, don't open browser
 
+    # Mock load_resume so the test doesn't depend on a resume file existing on
+    # disk. tailor_resume calls load_resume(config, direction) to read the
+    # source resume; cli.py's tailor command ALSO calls load_resume directly
+    # for the diff review. Patch at the source (agent_core.config.load_resume)
+    # so both call sites are covered. Without this the test breaks whenever
+    # resumes/ is empty (the real scenario after the user deletes sample resumes).
+    monkeypatch.setattr(
+        "agent_core.config.load_resume",
+        lambda config, direction: "某大学\n某公司\nAMR AGV SLAM 调度",
+    )
     monkeypatch.setattr("agent_core.pipeline.tailor.tailor_resume", fake_tailor_resume)
     monkeypatch.setattr("agent_core.pipeline.tailor.save_resume", fake_save_resume)
     monkeypatch.setattr("agent_core.pipeline.tailor.open_job_link", fake_open_job_link)
@@ -651,58 +744,6 @@ def test_cli__setup_without_api_key(monkeypatch):
     assert provider is None
 
 
-def test_cli_login_status_with_expired_cookies(tmp_path, monkeypatch):
-    """Test login --status when cookie files exist with expired cookies."""
-    cookies_dir = tmp_path / "data" / "cookies"
-    cookies_dir.mkdir(parents=True)
-    cookie_file = cookies_dir / "boss_zhipin.json"
-
-    from datetime import datetime
-
-    # Cookie expired yesterday
-    past_expire = datetime.now().timestamp() - 86400
-    cookie_file.write_text(
-        json.dumps(
-            [
-                {
-                    "name": "wt2",
-                    "value": "test",
-                    "domain": ".zhipin.com",
-                    "expires": past_expire,
-                    "path": "/",
-                    "secure": True,
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    def fake_load_config(path):
-        class PC:
-            enabled = True
-            cookie_path = str(cookie_file)
-
-        class Cfg:
-            api_key = ""
-            llm = type("LLM", (), {"api_key_env": "FAKE"})()
-
-            class platforms:
-                @staticmethod
-                def items():
-                    return {"boss_zhipin": PC()}.items()
-
-            platforms = platforms()
-
-        return Cfg()
-
-    monkeypatch.setattr("agent_core.config.load_config", fake_load_config)
-    monkeypatch.setattr("agent_core.storage.db.migrate", lambda db: None)
-
-    result = runner.invoke(app, ["login", "--status"])
-    assert result.exit_code == 0
-    assert "expired" in result.stdout.lower()
-
-
 def test_cli_rematch_job_not_found(tmp_path, monkeypatch):
     """Test rematch with non-existent job ID."""
     from agent_core.storage.db import get_db as real_get_db
@@ -766,13 +807,9 @@ def test_cli_rematch_all_since(tmp_path, monkeypatch):
     # Mock provider so _setup doesn't crash on missing API key
     _mock_provider(monkeypatch)
 
-    def fake_prescreen(jobs, config):
-        return jobs
-
     async def fake_match_jobs(jobs, config, provider):
         return [{"score": 90, "job_title": "engineer", "company": "acme"}], []
 
-    monkeypatch.setattr("agent_core.pipeline.prescreen.prescreen", fake_prescreen)
     monkeypatch.setattr("agent_core.pipeline.match.match_jobs", fake_match_jobs)
 
     result = runner.invoke(app, ["rematch", "--all-since", "2020-01-01"])
@@ -842,7 +879,7 @@ def test_cli_cover_letter(tmp_path, monkeypatch):
     def fake_save(text, job):
         return "/tmp/cover_letter.md"
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", fake_enrich)
     monkeypatch.setattr("agent_core.pipeline.cover_letter.generate_cover_letter", fake_generate)
     monkeypatch.setattr("agent_core.pipeline.cover_letter.save_cover_letter", fake_save)
 
@@ -907,19 +944,19 @@ def test_cli_interview_prep(tmp_path, monkeypatch):
         return job
 
     async def fake_predict(job, config, provider):
-        return {"technical": ["Q1"], "behavioral": ["Q2"], "project": ["Q3"]}
+        return {"rounds": [{"round": "一面", "focus": "技术", "questions": [{"q": "Q1", "a": []}]}]}
 
     def fake_save(qs, job):
         return "/tmp/interview_prep.md"
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", fake_enrich)
     monkeypatch.setattr("agent_core.pipeline.interview_prep.predict_questions", fake_predict)
     monkeypatch.setattr("agent_core.pipeline.interview_prep.save_interview_prep", fake_save)
 
     result = runner.invoke(app, ["interview-prep", "job1"])
     assert result.exit_code == 0
     assert "Saved" in result.stdout
-    assert "3 questions" in result.stdout
+    assert "1 questions" in result.stdout
 
 
 def test_cli_interview_prep_job_not_found(tmp_path, monkeypatch):
@@ -974,7 +1011,7 @@ def test_cli_mock_interview(tmp_path, monkeypatch):
 
     monkeypatch.setattr("agent_core.storage.db.get_db", lambda *a, **k: real_get_db(str(db_path)))
 
-    def fake_mi(job, config, provider):
+    def fake_mi(job, config, provider, from_prep=False, focus=None, difficulty=None):
         pass  # Interactive mock interview -- just no-op
 
     monkeypatch.setattr("agent_core.pipeline.interview_prep.mock_interview", fake_mi)
@@ -1319,7 +1356,7 @@ def test_cli_pipeline_results_detailed(tmp_path, monkeypatch):
     """Test pipeline command with detailed matched results output."""
     _mock_provider(monkeypatch)
 
-    async def fake_run_pipeline(config, provider, stages=None):
+    async def fake_run_pipeline(config, provider, stages=None, **kwargs):
         return {
             "matched": [
                 {

@@ -1,5 +1,19 @@
 # Job Seeker AI Agent — Backlog Baseline
 
+> **本文档已归档（2026-06-25）**
+>
+> 本 backlog 经代码级逐条核实，标注"未完成/待核实"的条目**已全部完成**（误报率 26.9%，P1-P3 待核实项 100% 误报）。本文档仅作历史快照保留，**不再反映项目现状**。
+>
+> 当前权威状态以以下文档为准：
+> - `docs/retrospective-2026-06-25.md` — 代码级逐条核实复盘（**已归档 2026-07-31，历史基线**）
+> - `docs/development-plan.md` — 已更新的开发计划（**已归档 2026-07-24，历史基线**）
+> - `AGENTS.md` — AI 助手长期记忆锚点（跨会话行为铁律，进入仓库先读）
+- `README.md` / `docs/ARCHITECTURE.md` / `docs/USAGE.md` — 当前权威（2026-08-16 全项目整理时再次订正对齐代码）
+- `docs/retrospective-2026-08-16-mock-interview.md` — 模拟面试专项复盘（2026-08-16）
+- `docs/retrospective-2026-08-16-search-audit.md` — 职位搜索专项复盘（2026-08-16）
+>
+> 如需了解真正未完成的工作，请直接阅读上述复盘报告第 2 节"真未完成清单"。
+
 **生成日期**: 2026-06-20
 
 **说明**: 本文件为 backlog 基线，P0 证据已逐一核实（行号准确），P1-P3 证据待全仓抽查并标注相应说明。
@@ -51,12 +65,7 @@
 
 ### P0-3: Prescreen 规则硬编码
 
-**实际状态**: ✅ 已完成 (2026-06-21)
-
-**实现摘要**:
-- config.py 新增 `PrescreenRulesConfig`(feature_weight=25 / keyword_weight=15 / salary_high_multiplier=1.5 / salary_high_bonus=5),config.yaml 加 prescreen_rules 段
-- prescreen.py 三处硬编码改为读 config,向后兼容(缺配置用默认值)
-- 新增 4 个测试(test_prescreen.py),全过
+**状态**: ❌ 已移除 (2026-07-03) — prescreen 阶段已从 pipeline 中整体移除，改为人工标记筛选 + LLM 精排。`prescreen.py` 文件及配置、测试已全部删除。
 
 ---
 
@@ -92,13 +101,17 @@
 
 ### P1-3: interview-prep CLI 不完整
 
-- 状态: ⚠️ 部分完成
-- 缺失: 交互式 mock-interview 命令
+- 状态: ✅ 已完成 (2026-07-19 核实)
+- 实现: `cli.py:534` interview-prep 命令 + `pipeline/interview_prep.py:29` predict_questions
+- mock-interview 命令已补齐，见 P1-4
 
 ### P1-4: 模拟面试功能缺失
 
-- 状态: ❌ 未完成
-- 说明: CLI 层面无交互式 mock-interview 实现
+- 状态: ✅ 已完成 (2026-07-19 核实)
+- 实现: `cli.py:582` mock-interview 命令 + `pipeline/interview_prep.py:79` mock_interview (终端交互式)
+- 测试: `tests/test_cli.py:977` test_cli_mock_interview
+- Stage 3 (2026-07-19): Dashboard 在线模拟面试 + SSE 流式。`serve.py` 加 `/api/mock-interview/start|reply|end`；`interview_prep.py` 加 `start_mock_session`/`stream_mock_turn`/`end_mock_session`（对话循环与终端 I/O 分离，chat_stream 流式）；前端 mock tab + 聊天气泡 + fetch ReadableStream 解析 SSE
+- Stage 4 (2026-07-19): 语音 STT+TTS（浏览器原生 SpeechRecognition + SpeechSynthesis，零新依赖）。mock tab 🎤 麦克风按钮 + 朗读面试官开关
 
 ---
 
@@ -147,7 +160,8 @@
 
 ### P3-1: mock-interview 命令缺失
 
-- 状态: ❌ 未完成
+- 状态: ✅ 已完成 (2026-07-19 核实)
+- 实现: `cli.py:582` mock-interview 命令已暴露
 
 ### P3-2: offer-eval / salary-advice CLI 暴露情况待核实
 
@@ -176,9 +190,7 @@
 
 ### 遗漏 1: Prescreen 配置化的具体配置项结构未定义
 
-- 影响范围: P0-3 修复
-- 缺失内容: config.yaml `prescreen_rules` 段的具体字段定义
-- 建议补充: 权重字段、阈值字段、匹配规则示例
+- 影响范围: P0-3 修复（已于 2026-07-03 随 prescreen 阶段整体移除）
 
 ### 遗漏 2: enrichment.py 未集成进 Pipeline
 
@@ -215,7 +227,7 @@
 - rate_limit_seconds 配置生效（HTTP 请求间隔动态）
 - Boss code-37 触发时自动加长延时（≥5 分钟）并降级页数（≤5 页）
 - 3 平台适配器返回真实 HTTP 数据（非 NotImplementedError）
-- Prescreen 权重/阈值可配置（config.yaml 修改后 prescreen.py 读取）
+- （Prescreen 已于 2026-07-03 整体移除）
 - 旧 login 命令报错，import-cookies 命令可用
 
 ---
@@ -249,15 +261,15 @@
 
 **目标**: 补齐遗漏功能，完善文档
 
-- **P1-3**: 完成 interview-prep CLI（补充交互式 mock-interview 命令）
-- **P1-4**: 补齐 mock-interview CLI 功能
+- **P1-3**: ✅ 已完成 -- interview-prep CLI + mock-interview 命令均已实现
+- **P1-4**: ✅ 已完成 -- mock-interview CLI 功能已补齐
 - **P3-3**: 完善 Dashboard（API 文档、错误处理、认证机制）
 - **P3-4**: 在 Dashboard 添加 Timeline 组件
 - **P3-5**: 添加手动测试命令（如 `pytest -k "toast" --run-integration`）
 
 **验收标准**:
-- interview-prep CLI 支持交互式面试（语音/文本输入）
-- mock-interview CLI 可生成面试题 + 评估回答
+- interview-prep CLI 生成面试题（文本，✅ 已实现；语音输入✅ Dashboard 模拟面试 tab 用 Web Speech API STT/TTS）
+- mock-interview CLI 可生成面试题 + 评估回答（✅ 已实现）
 - Dashboard 有 API 文档页面（Swagger/OpenAPI）
 - Dashboard 错误处理完善（404/500 页面 + 日志记录）
 - Dashboard 有登录认证（至少基础 token 验证）
@@ -291,7 +303,7 @@
 |---------|---------|---------|---------|
 | P0-1 (rate_limit + code-37) | Read `boss_zhipin.py:152-159,119-170` | ✅ 已核实 | 152-159, 119-170 |
 | P0-2 (3 适配器) | Read `job51.py:12-14`, `zhilian.py:12-14`, `maimai.py:12-14` | ✅ 已核实 | 12-14 每个文件 |
-| P0-3 (Prescreen 硬编码) | Read `prescreen.py:62-69` | ✅ 已核实 | 62-69 |
+| P0-3 (Prescreen 硬编码) | ❌ 已移除 (2026-07-03) | ✅ 已核实 | 已删除 |
 | P0-4 (login 冗余) | Read `cli.py:82-92,364-381` + `boss_zhipin.py` 检查 Playwright | ✅ 已核实 | 82-92, 364-381 |
 | **合计** | | **4/4 已核实** | - |
 

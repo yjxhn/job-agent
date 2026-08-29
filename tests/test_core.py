@@ -2,7 +2,7 @@
 
 Deterministic — no network, no real LLM. Covers the modules touched by the
 F2/F3/F4/F5/F7/F8/F9 fixes: match (parse/retry/concurrency/min-score),
-prescreen, filter, search dedup, scheduler (corrupt recovery + PID lock).
+filter, search dedup, scheduler (corrupt recovery + PID lock).
 """
 
 import asyncio
@@ -13,7 +13,7 @@ import pytest
 
 from agent_core.config import load_config
 from agent_core.pipeline import filter as filter_mod
-from agent_core.pipeline import match, prescreen
+from agent_core.pipeline import match
 from agent_core.pipeline.search import _dedup, _normalize_company
 from agent_core.platforms.base import Job
 from agent_core.scheduler import scheduler as S
@@ -61,6 +61,20 @@ class FakeProvider:
             raise r
         return r
 
+    async def chat_with_reasoning(
+        self, messages, temperature=0.7, max_tokens=4096, response_format=None
+    ):
+        """Mock variant of chat_with_reasoning. Returns (content, "") —
+        reasoning_content is empty in tests because thinking mode isn't
+        exercised against a real API here."""
+        content = await self.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
+        return content, ""
+
 
 # ---------- F2: match._parse ----------
 
@@ -96,27 +110,42 @@ def test_parse_empty_raises():
 # ---------- F2/F4/F7: match.match_jobs ----------
 
 
-def _ps_item(job, score=80, direction="equipment_amr"):
-    return prescreen.PrescreenResult(
-        job=job,
-        score=score,
-        direction=direction,
-        resume_file="resumes/equipment_amr.txt",
-        confidence="high",
-    )
+class _PipelineItem:
+    """Lightweight stand-in for the pipeline item match_jobs consumes.
+
+    match_jobs reads item.job / item.resume_file / item.direction. The real
+    pipeline wraps Job in a PipelineItem; tests use this stub to avoid the
+    extra import. Job is a frozen-ish pydantic model so we cannot attach
+    resume_file to it directly — keep it on the wrapper instead.
+    """
+
+    def __init__(self, job, direction="equipment_amr", resume_file="resumes/equipment_amr.txt"):
+        self.job = job
+        self.direction = direction
+        self.resume_file = resume_file
+
+
+def _match_job(job, direction="equipment_amr"):
+    """Backward-compat helper: returns a _PipelineItem wrapping the job."""
+    job.direction = direction
+    return _PipelineItem(job, direction=direction)
+
+
+# Some legacy tests call _ps_item directly — alias to _PipelineItem for compat.
+_ps_item = _PipelineItem
 
 
 def test_match_jobs_returns_tuple_and_filters_min_score(cfg):
     # Arrange: two jobs, one below min_score (50), one above
     provider = FakeProvider(
         [
-            '{"score": 30, "match_reason": "low", "missing_skills": [], "strengths": []}',
-            '{"score": 80, "match_reason": "good", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 30, "match_reason": "low", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 80, "match_reason": "good", "missing_skills": [], "strengths": []}',
         ]
     )
     ps = [
-        _ps_item(_job(id="1", title="AMR 低分", description="AMR AGV 调度")),
-        _ps_item(_job(id="2", title="AMR 高分", description="AMR AGV 调度")),
+        _match_job(_job(id="1", title="AMR 低分", description="AMR AGV 调度")),
+        _match_job(_job(id="2", title="AMR 高分", description="AMR AGV 调度")),
     ]
 
     # Act
@@ -125,7 +154,10 @@ def test_match_jobs_returns_tuple_and_filters_min_score(cfg):
     # Assert: 30 filtered by min_score, 80 kept; 0 skipped (no errors)
     assert skipped == 0
     assert len(results) == 1
-    assert results[0]["score"] == 80
+    assert results[0]["raw_score"] == 80
+    # Reasoning field should be present (empty string from FakeProvider)
+    assert "reasoning" in results[0]
+    assert "prompt_version" in results[0]
 
 
 def test_match_jobs_retries_on_bad_json(cfg):
@@ -133,10 +165,10 @@ def test_match_jobs_retries_on_bad_json(cfg):
     provider = FakeProvider(
         [
             "not valid json",
-            '{"score": 75, "match_reason": "ok", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 75, "match_reason": "ok", "missing_skills": [], "strengths": []}',
         ]
     )
-    ps = [_ps_item(_job(id="1", title="AMR", description="AMR AGV 调度"))]
+    ps = [_match_job(_job(id="1", title="AMR", description="AMR AGV 调度"))]
 
     # Act
     results, skipped = asyncio.run(match.match_jobs(ps, cfg, provider))
@@ -145,7 +177,7 @@ def test_match_jobs_retries_on_bad_json(cfg):
     assert provider.calls == 2
     assert skipped == 0
     assert len(results) == 1
-    assert results[0]["score"] == 75
+    assert results[0]["raw_score"] == 75
 
 
 def test_match_jobs_skipped_when_all_attempts_fail(cfg):
@@ -174,48 +206,18 @@ def test_match_jobs_sorted_desc_by_score(cfg):
     # Arrange: responses out of order; concurrency may reorder, but result must be sorted
     provider = FakeProvider(
         [
-            '{"score": 60, "match_reason": "x", "missing_skills": [], "strengths": []}',
-            '{"score": 95, "match_reason": "x", "missing_skills": [], "strengths": []}',
-            '{"score": 75, "match_reason": "x", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 60, "match_reason": "x", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 95, "match_reason": "x", "missing_skills": [], "strengths": []}',
+            '{"raw_score": 75, "match_reason": "x", "missing_skills": [], "strengths": []}',
         ]
     )
     ps = [_ps_item(_job(id=str(i), title=f"AMR {i}", description="AMR AGV 调度")) for i in range(3)]
 
     results, skipped = asyncio.run(match.match_jobs(ps, cfg, provider))
 
-    scores = [r["score"] for r in results]
+    scores = [r["raw_score"] for r in results]
     assert scores == sorted(scores, reverse=True)
     assert skipped == 0
-
-
-# ---------- prescreen ----------
-
-
-def test_prescreen_selects_equipment_direction(cfg):
-    job = _job(title="AMR AGV 调度工程师", description="AMR AGV SLAM 导航 物流自动化")
-    ps = prescreen.prescreen([job], cfg)
-    assert len(ps) == 1
-    assert ps[0].direction == "equipment_amr"
-
-
-def test_prescreen_selects_industrial_ai_direction(cfg):
-    job = _job(title="工业大模型 Agent 架构师", description="LLM RAG Tool Memory Multi-Agent")
-    ps = prescreen.prescreen([job], cfg)
-    assert len(ps) == 1
-    assert ps[0].direction == "industrial_ai_agent"
-
-
-def test_prescreen_respects_top_n(cfg):
-    jobs = [
-        _job(id=str(i), title=f"AMR AGV 调度 {i}", description="AMR AGV SLAM 导航 调度 激光")
-        for i in range(50)
-    ]
-    ps = prescreen.prescreen(jobs, cfg)
-    assert len(ps) == cfg.matching.prescreen_top_n
-
-
-def test_prescreen_empty_returns_empty(cfg):
-    assert prescreen.prescreen([], cfg) == []
 
 
 # ---------- filter ----------
@@ -484,11 +486,38 @@ def test_boss_load_cookies_parses_list(tmp_path):
 def test_boss_session_cookie_valid():
     from agent_core.platforms.boss_zhipin import _session_cookie_valid
 
+    valid_pair = [
+        {"name": "wt2", "expires": -1},
+        {"name": "__zp_stoken__", "expires": 9999999999},
+    ]
     # No wt2 → invalid
     assert _session_cookie_valid([{"name": "bst"}]) is False
-    # wt2 session cookie (expires <= 0) → valid
-    assert _session_cookie_valid([{"name": "wt2", "expires": -1}]) is True
-    # wt2 with future expiry → valid
-    assert _session_cookie_valid([{"name": "wt2", "expires": 9999999999}]) is True
-    # wt2 expired → invalid
-    assert _session_cookie_valid([{"name": "wt2", "expires": 1}]) is False
+    # wt2 alone is no longer enough → invalid
+    assert _session_cookie_valid([{"name": "wt2", "expires": -1}]) is False
+    # wt2 + __zp_stoken__ session cookies → valid
+    assert _session_cookie_valid(valid_pair) is True
+    # wt2 expired → invalid even with stoken
+    assert (
+        _session_cookie_valid(
+            [{"name": "wt2", "expires": 1}, {"name": "__zp_stoken__", "expires": 9999999999}]
+        )
+        is False
+    )
+
+
+def test_save_pipeline_run_writes_row(tmp_path):
+    from agent_core.pipeline import orchestrator
+    from agent_core.storage.db import get_db, migrate
+
+    db_path = str(tmp_path / "pipe.db")
+    conn = get_db(db_path)
+    migrate(conn)
+    conn.close()
+
+    orchestrator._save_pipeline_run("search", 3, db_path=db_path)
+
+    conn = get_db(db_path)
+    row = conn.execute("SELECT stage, job_count FROM pipeline_runs").fetchone()
+    conn.close()
+    assert row[0] == "search"
+    assert row[1] == 3

@@ -1,39 +1,41 @@
-"""智联招聘 platform adapter using direct HTTP API.
+"""智联招聘 platform adapter with dual-mode search.
+
+Primary (recommended): Playwright browser-based search.
+  Launches real Chromium to let Akamai Bot Manager JS generate the
+  dynamic URL token (MmEwMD, c1K5tw0w6_) and sensor data. Browser
+  intercepts the fe-api XHR response and extracts job listings.
+  Requires: pip install playwright && playwright install chromium.
+
+Fallback: Direct HTTP API (POST fe-api.zhaopin.com/c/i/search/positions).
+  Uses at/rt cookies only. May be soft-blocked by Akamai when URL
+  tokens are required, resulting in count>0 but list empty.
 
 API discovery (2026-06-21, endpoint corrected 2026-06-21):
   Primary endpoint: POST https://fe-api.zhaopin.com/c/i/search/positions
-  JSON body: {S_SOU_FULL_INDEX, S_SOU_WORK_CITY, pageSize, pageIndex,
-    actionid, cvNumber, eventScenario, anonymous, resumeNumber,
-    clickFilterBlackCompany, sortType, platform, version}
+  JSON body: {S_SOU_FULL_INDEX, S_SOU_WORK_CITY, pageSize, pageIndex, ...}
   Response shape: {code, apiCode, data: {count, list: [{name, companyName,
-    salary60, education, workingExp, workCity, cityDistrict, cityId,
-    positionURL, number, companySize, industryName, workType, publishTime,
-    jobDetailData: {position: {base: {positionName, salary, education,
-    positionWorkingExp, workType, ...}, desc: {description, ...},
-    workLocation: {address, ...}}}, ...}]}}
-  Required headers: origin, referer (zhaopin.com), x-zp-action-id (UUID),
-    x-zp-business-system: 1, x-zp-page-code: 4019, x-zp-platform: 13
-  Anti-bot: GET /c/i/sou always returns count=0 (Akamai-protected).
-    POST /c/i/search/positions works with valid cookies + x-zp-* headers.
+    salary60, ...}]}}
 
-Status: Live API confirmed working 2026-06-21. POST /c/i/search/positions
-  returns real jobs with valid cookies and x-zp-* headers.
+Anti-bot note: The GET /c/i/sou endpoint is Akamai-protected (always
+  returns count=0). The POST /c/i/search/positions works with valid
+  cookies but may require Akamai URL tokens for consistent results.
+
+Status: Browser mode verified 2026-06-24 (Phase 1 POC passed).
+  POST endpoint confirmed working with valid cookies + x-zp-* headers,
+  but susceptible to soft-blocks without Akamai tokens.
 """
 
 import asyncio
 import hashlib
 import json
 import logging
-import time
-import uuid
 from pathlib import Path
 
-from agent_core.platforms.base import Job, PlatformAdapter
+from agent_core.platforms.base import Job, PlatformAdapter, parse_salary_text
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhaopin.com"
-SEARCH_URL = "https://sou.zhaopin.com"
 # Working POST endpoint (GET /c/i/sou returns count=0 due to Akamai)
 API_SEARCH = "https://fe-api.zhaopin.com/c/i/search/positions"
 
@@ -70,57 +72,23 @@ def _load_cookies(cookie_path: str | None) -> list[dict]:
     return []
 
 
-def _session_cookie_valid(cookies: list[dict]) -> bool:
-    """True if 智联 session cookies are present and not expired.
-
-    Session indicators: FSSBBIl1UgzbN7NS (www.zhaopin.com, httpOnly, secure),
-    x-zp-client-id (.zhaopin.com, secure), zp_passport_deepknow_sessionId.
-    """
-    now = time.time()
-    session_names = {"FSSBBIl1UgzbN7NS", "FSSBBIl1UgzbN7NT"}
-    found = False
-    for c in cookies:
-        if c.get("name") in session_names:
-            found = True
-            exp = c.get("expires") or c.get("expirationDate", -1)
-            if isinstance(exp, int | float) and exp > 0 and exp <= now:
-                return False  # Explicitly expired
-    return found
-
-
-def _notify_anti_bot(platform: str = "智联招聘") -> None:
-    """Fire a toast + log when anti-bot challenge is triggered."""
-    logger.warning(
-        f"[智联] Anti-bot challenge triggered ({platform}) — "
-        "API returns 0 results despite valid request"
-    )
-    try:
-        from agent_core.notify.windows_toast import notify_anti_bot
-
-        notify_anti_bot(platform)
-    except Exception:
-        logger.debug("Anti-bot notify skipped")
-
-
-def _notify_cookie_expired(platform: str = "智联招聘") -> None:
-    """Fire a toast + log when the cookie is missing/expired/rejected."""
-    logger.warning("[智联] Cookie missing or expired — re-login required")
-    try:
-        from agent_core.notify.windows_toast import notify_cookie_expired
-
-        notify_cookie_expired(platform)
-    except Exception:
-        logger.debug("Cookie-expired notify skipped")
-
-
 class ZhilianAdapter(PlatformAdapter):
     name = "zhilian"
 
-    def __init__(self, rate_limit_seconds: int | None = None):
+    def __init__(
+        self,
+        rate_limit_seconds: int | None = None,
+        browser_profile_dir: str | None = None,
+        max_pages: int | None = None,
+    ):
         self._rate_limit_seconds = rate_limit_seconds if rate_limit_seconds is not None else 2.0
-        self._ANTI_BOT_BACKOFF_SECONDS = (
-            rate_limit_seconds if rate_limit_seconds is not None else 300
-        )
+        # Anti-bot backoff is independent of rate limiting: a short
+        # rate_limit_seconds (e.g. 1-2s) must NOT shrink the anti-bot
+        # cooldown, or a soft block would be "backed off" for only a
+        # second. Fixed at 300s (matches the original design).
+        self._ANTI_BOT_BACKOFF_SECONDS = 300
+        self.max_pages = max_pages if max_pages and max_pages > 0 else 1
+        self._browser_profile_dir = browser_profile_dir or "data/zhilian_browser_profile"
 
     async def search(
         self,
@@ -130,174 +98,58 @@ class ZhilianAdapter(PlatformAdapter):
         headless: bool = False,
         rate_limit_seconds: int | None = None,
     ) -> list[Job]:
-        """Search 智联招聘 via direct HTTP API.
+        """Search 智联招聘 via Playwright browser (primary) or HTTP API (fallback).
 
-        Uses fe-api.zhaopin.com/c/i/search/positions (POST). headless is ignored.
+        Browser mode (default): Launches Chromium with persistent profile,
+        navigates to sou.zhaopin.com, intercepts fe-api XHR responses.
+        Akamai tokens (MmEwMD, c1K5tw0w6_) are generated automatically
+        by the browser JS -- no manual token crafting needed.
 
-        Anti-bot note: When the API returns code=200 but count=0,
-        cookies are likely stale. The adapter logs a warning and returns [].
+        Fallback mode (when browser unavailable): Uses the existing HTTP
+        POST to fe-api.zhaopin.com/c/i/search/positions with at/rt cookies.
+        May be soft-blocked by Akamai (count>0, list empty).
+
+        Args:
+            keywords: Search keywords (max 2 used)
+            location: City name (maps to city code)
+            cookie_path: Cookie JSON path (for HTTP fallback mode)
+            headless: Run browser headless (more detectable; default False)
+            rate_limit_seconds: Override per-request rate limit
         """
         if rate_limit_seconds is not None:
             self._rate_limit_seconds = rate_limit_seconds
 
-        cookies = _load_cookies(cookie_path)
-        if not cookies:
-            logger.warning(
-                f"[智联] No cookie at {cookie_path}; "
-                f"run `job-agent import-cookies <file> zhilian --domain zhaopin.com` first"
-            )
-            _notify_cookie_expired()
-            return []
-        if not _session_cookie_valid(cookies):
-            _notify_cookie_expired()
-            return []
-
-        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
         city_code = CITY_CODES.get(location, "0")
 
-        jobs: list[Job] = []
-        for keyword in keywords[:2]:
-            keyword_jobs = await self._search_keyword_api(
-                keyword, city_code, cookie_str, rate_limit_seconds
-            )
-            jobs.extend(keyword_jobs)
-            await asyncio.sleep(2)  # inter-keyword rate limit
-
-        logger.info(f"[智联] {len(jobs)} jobs total for keywords {keywords[:2]}")
-        return jobs
-
-    def _build_headers(self, cookie_str: str) -> tuple[dict[str, str], str]:
-        """Build headers matching browser POST to /c/i/search/positions.
-
-        x-zp-action-id is a random UUID per request (matches actionid in body).
-        sec-ch-ua-* headers are omitted -- not required by the API.
-        """
-        action_id = str(uuid.uuid4())
-        return {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/149.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Cache-Control": "no-cache",
-            "Content-Type": "application/json;charset=UTF-8",
-            "Origin": BASE_URL,
-            "Pragma": "no-cache",
-            "Referer": f"{BASE_URL}/",
-            "x-zp-action-id": action_id,
-            "x-zp-business-system": "1",
-            "x-zp-page-code": "4019",
-            "x-zp-platform": "13",
-            "Cookie": cookie_str,
-        }, action_id
-
-    async def _search_keyword_api(
-        self,
-        keyword: str,
-        city_code: str,
-        cookie_str: str,
-        rate_limit_seconds: float | None = None,
-    ) -> list[Job]:
-        """Call 智联 POST /c/i/search/positions for one keyword.
-
-        Returns jobs list (empty if anti-bot blocks). The POST endpoint
-        requires x-zp-* headers and valid session cookies. GET /c/i/sou
-        is Akamai-protected and always returns count=0.
-        """
-        import urllib.error
-        import urllib.request
-
-        headers, action_id = self._build_headers(cookie_str)
-
-        body = {
-            "S_SOU_FULL_INDEX": keyword,
-            "S_SOU_WORK_CITY": city_code,
-            "order": 0,
-            "actionid": action_id,
-            "pageSize": 20,
-            "pageIndex": 1,
-            "eventScenario": "pcSearchedSouSearch",
-            "anonymous": 0,
-            "clickFilterBlackCompany": False,
-            "sortType": "DEFAULT",
-            "platform": 13,
-            "version": "0.0.0",
-        }
-        body_bytes = json.dumps(body).encode("utf-8")
-
-        req = urllib.request.Request(
-            API_SEARCH,
-            data=body_bytes,
-            headers=headers,
-            method="POST",
-        )
-
-        def _fetch() -> bytes:
-            with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
-                return r.read()
-
+        # Try browser mode first
         try:
-            raw = await asyncio.to_thread(_fetch)
-            obj = json.loads(raw.decode("utf-8", "replace"))
-        except urllib.error.HTTPError as e:
-            logger.error(f"[智联] API HTTP {e.code} for '{keyword}': {e.reason}")
-            _notify_cookie_expired()
+            from agent_core.platforms.zhilian_browser import get_browser
+
+            browser = await get_browser(profile_dir=self._browser_profile_dir, headless=headless)
+            jobs: list[Job] = []
+            for keyword in keywords[:2]:
+                items = await browser.search(
+                    keyword=keyword,
+                    city_code=city_code,
+                    headless=headless,
+                )
+                for item in items:
+                    try:
+                        jobs.append(self._api_item_to_job(item))
+                    except Exception as e:
+                        logger.debug(f"[智联] Skip item: {e}")
+                        continue
+                if len(keywords[:2]) > 1:
+                    await asyncio.sleep(2)
+
+            if jobs:
+                logger.info(f"[智联] Browser mode: {len(jobs)} jobs for {keywords[:2]}")
+                return jobs
+            logger.warning("[智联] Browser returned 0 results (API fallback disabled)")
             return []
         except Exception as e:
-            logger.error(f"[智联] API error for '{keyword}': {e}")
+            logger.error(f"[智联] Browser mode failed: {e}")
             return []
-
-        # Check response
-        code = obj.get("code")
-        api_code = obj.get("apiCode", 0)
-        data = obj.get("data", {})
-        total_count = data.get("count", 0)
-        items = data.get("list", [])
-
-        if code != 200 or api_code != 200:
-            msg = obj.get("message", "")
-            sd = data.get("statusDescription", "")
-            logger.warning(
-                f"[智联] API code={code} apiCode={api_code} msg={msg} statusDesc={sd}"
-                f" for '{keyword}'"
-            )
-            _notify_cookie_expired()
-            return []
-
-        if total_count == 0:
-            # code=200 but no data — stale or missing CAPTCHA cookie
-            logger.warning(
-                f"[智联] API returned count=0 for '{keyword}' "
-                "(cookie may be stale / CAPTCHA needed). "
-                "Try re-exporting cookies after visiting sou.zhaopin.com in browser "
-                "and solving the CAPTCHA."
-            )
-            _notify_anti_bot()
-            await asyncio.sleep(self._ANTI_BOT_BACKOFF_SECONDS)
-            return []
-
-        if not items and total_count > 0:
-            # count>0 but list empty — true anti-bot soft block
-            logger.warning(
-                f"[智联] count={total_count} but list empty for '{keyword}' "
-                "(anti-bot soft block likely)"
-            )
-            _notify_anti_bot()
-            await asyncio.sleep(self._ANTI_BOT_BACKOFF_SECONDS)
-            return []
-
-        jobs: list[Job] = []
-        for item in items:
-            try:
-                jobs.append(self._api_item_to_job(item))
-            except Exception as e:
-                logger.debug(f"[智联] Skip item: {e}")
-                continue
-
-        logger.info(f"[智联] '{keyword}': {len(jobs)} jobs (total={total_count})")
-        return jobs
 
     def _api_item_to_job(self, item: dict) -> Job:
         """Map one 智联 API data.list item to a Job.
@@ -381,96 +233,193 @@ class ZhilianAdapter(PlatformAdapter):
         )
         job.security_id = job_number
         job.lid = url
+        job.published_at = item.get("publishTime", "") or ""
+        job.education = item.get("education", "") or ""
         return job
 
-    def normalize(self, raw: dict) -> Job:
-        return Job(
-            id=raw.get("id", ""),
-            title=raw.get("title", ""),
-            company=raw.get("company", ""),
-            location=raw.get("location", ""),
-            salary_min=raw.get("salary_min"),
-            salary_max=raw.get("salary_max"),
-            description=raw.get("description", ""),
-            platforms=[self.name],
-            urls={self.name: raw.get("url", "")},
+    async def fetch_full_jd(self, job, cookie_path: str) -> str:
+        """Fetch full JD for a Zhilian job.
+
+        Strategy:
+        1. Reuse the persistent zhilian browser (singleton) when available —
+           its CDN cookies bypass Tencent Cloud EdgeOne which would otherwise
+           block a standalone Playwright context with a CAPTCHA.
+        2. Fall back to standalone playwright_jd browser.
+        3. Last resort: static HTTP (rarely works, JS-rendered pages).
+
+        Args:
+            job: Job object with lid (detail URL) and security_id
+            cookie_path: Path to Zhilian cookie JSON file
+
+        Returns:
+            Full JD text (truncated to 5000 chars) or "" on error
+        """
+        import re
+
+        # Short-circuit: zhilian search API already includes full JD via
+        # jobDetailData.position.desc.description.  If the description has
+        # "岗位职责" or "任职要求" it's already complete — don't waste a
+        # browser launch (and risk EdgeOne CAPTCHA) for nothing.
+        desc = job.description or ""
+        if any(kw in desc for kw in ("岗位职责", "任职要求", "工作职责", "岗位要求")):
+            logger.info("[智联] JD already present from search API, skipping fetch")
+            return ""
+
+        lid = getattr(job, "lid", "") or ""
+        if not lid.startswith("http"):
+            return ""
+
+        # Strategy 1: use persistent zhilian browser (bypasses CDN CAPTCHA)
+        try:
+            from agent_core.platforms.zhilian_browser import get_browser as _get_zl_browser
+
+            zl_browser = await _get_zl_browser(
+                profile_dir=self._browser_profile_dir, headless=False
+            )
+            page = await zl_browser._context.new_page()
+            try:
+                await page.goto(lid, wait_until="domcontentloaded", timeout=20000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=8000)
+                except Exception:
+                    pass
+                jd = ""
+                for sel in (
+                    ".describtion__detail-content",
+                    ".job-description",
+                    "[class*='description']",
+                    "[class*='job-detail']",
+                ):
+                    try:
+                        el = await page.query_selector(sel)
+                        if el:
+                            text = (await el.inner_text()).strip()
+                            if text and len(text) > 50:
+                                jd = text
+                                break
+                    except Exception:
+                        continue
+                if not jd:
+                    try:
+                        body = (await page.inner_text("body")).strip()
+                    except Exception:
+                        body = ""
+                    if body:
+                        from agent_core.platforms.playwright_jd import _slice_jd_from_body
+
+                        jd = _slice_jd_from_body(body, "zhilian")
+                if jd and len(jd) > 50:
+                    logger.info(f"[智联] Fetched JD via persistent browser: {len(jd)} chars")
+                    return jd[:5000]
+            finally:
+                await page.close()
+        except Exception as e:
+            logger.debug(f"[智联] Persistent browser JD fetch: {e}")
+
+        # Strategy 2: standalone playwright_jd browser
+        try:
+            from agent_core.platforms.playwright_jd import fetch_jd_playwright
+
+            jd = await fetch_jd_playwright(
+                url=lid,
+                platform="zhilian",
+                cookie_path=cookie_path,
+                headless=False,
+            )
+            if jd and len(jd) > 50:
+                logger.info(f"[智联] Fetched JD via playwright_jd: {len(jd)} chars")
+                return jd[:5000]
+        except Exception as e:
+            logger.warning(f"[智联] Playwright JD fetch failed: {e}")
+
+        # Fallback: Try HTTP fetch with cookies (rarely works due to JS rendering)
+        cookies = _load_cookies(cookie_path)
+        if not cookies:
+            logger.debug("[智联] No cookies for HTTP JD fetch")
+            return ""
+
+        import urllib.request
+
+        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+        req = urllib.request.Request(
+            lid,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Referer": BASE_URL,
+                "Cookie": cookie_str,
+            },
         )
+
+        def _fetch():
+            with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
+                return r.read().decode("utf-8", "replace")
+
+        try:
+            html = await asyncio.to_thread(_fetch)
+
+            # Try to extract JD from HTML
+            # Zhilian JD is usually in <div class="describtion__detail-content">
+            jd_match = re.search(
+                r'<div[^>]*class="[^"]*describtion[^"]*"[^>]*>(.*?)</div>',
+                html,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if jd_match:
+                jd_text = re.sub(r"<[^>]+>", " ", jd_match.group(1))
+                jd_text = " ".join(jd_text.split())
+                if len(jd_text) > 50:
+                    return jd_text[:5000]
+
+            # Fallback: look for 岗位职责 or 职位描述
+            if "岗位职责" in html or "职位描述" in html:
+                body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL)
+                if body_match:
+                    body_text = re.sub(r"<[^>]+>", " ", body_match.group(1))
+                    body_text = " ".join(body_text.split())
+                    for marker in ["岗位职责", "职位描述", "任职要求"]:
+                        idx = body_text.find(marker)
+                        if idx >= 0:
+                            return body_text[idx : idx + 3000][:5000]
+
+            logger.warning("[智联] Could not extract JD from HTML")
+            return ""
+
+        except Exception as e:
+            logger.warning(f"[智联] HTTP JD fetch error: {e}")
+            return ""
 
 
 async def zhilian_login(
-    cookie_path: str = "data/cookies/zhilian.json",
-    timeout_s: int = 180,  # noqa: ARG001 -- signature required by plugin system
+    cookie_path: str = "data/cookies/zhilian.json",  # noqa: ARG001 -- kept for plugin compat
+    timeout_s: int = 180,
 ) -> bool:
-    """智联招聘 has anti-bot protection that blocks automated browsers
-    (the sou.zhaopin.com page returns "Security Verification"). This function
-    guides the user through the manual cookie-export flow instead. Always returns
-    False (no automated cookie was obtained).
+    """智联招聘 browser-based login: opens headed Chromium for manual login.
+
+    The user manually logs in on zhaopin.com. After login, cookies are
+    persisted in the browser profile (data/zhilian_browser_profile/).
+    Subsequent searches reuse the profile -- no cookie export needed.
+
+    Returns True if login was detected, False on timeout.
     """
-    export_path = Path(cookie_path).parent / "zhilian_export.json"
-    print("\n[智联] 自动登录不可行（智联有 Akamai/CDN 反爬，Playwright 会被拦截）。")
-    print("请按手动流程获取 cookie：")
-    print("  1. 在日常 Chrome 访问 https://sou.zhaopin.com/ 并手动通过人机验证")
-    print("  2. 用 Cookie-Editor 扩展导出 zhaopin.com 的全部 cookie 为 JSON")
-    print("     （关键 cookie：FSSBBIl1UgzbN7NS、x-zp-client-id）")
-    print(f"  3. 保存为 {export_path}")
-    print(f"  4. 运行: job-agent import-cookies {export_path} zhilian --domain zhaopin.com")
-    print("")
-    print("  API 概览（已确认）:")
-    print("    搜索: POST https://fe-api.zhaopin.com/c/i/search/positions")
-    print("    必带头: origin, referer, x-zp-action-id, x-zp-business-system,")
-    print("           x-zp-page-code, x-zp-platform")
-    print("    响应: {code, apiCode, data: {count, list: [{name, companyName, salary60," " ...}]}}")
-    print("    反爬: GET /c/i/sou 被 Akamai 拦截，需用 POST 端点")
-    return False
+    from agent_core.platforms.zhilian_browser import zhilian_browser_login
+
+    profile_dir = "data/zhilian_browser_profile"
+    print("\n[智联] 启动浏览器到 https://www.zhaopin.com/")
+    print(f"[智联] 请在 {timeout_s} 秒内手动登录（扫码或账号密码）")
+    print("[智联] 登录后 cookie 自动保存到浏览器 profile，后续搜索无需再次登录。")
+    print(f"[智联] Profile 目录: {profile_dir} (已 gitignored)")
+    print()
+
+    return await zhilian_browser_login(profile_dir=profile_dir, timeout_s=timeout_s)
 
 
 def _parse_salary(text: str) -> tuple[int | None, int | None]:
-    """Parse '15K-25K' or '8千-1.2万' into (min, max) in yuan.
-
-    Supports K/k format (thousands) and 千/万 format.
-    """
-    if not text:
-        return None, None
-
-    # Remove spaces and normalize
-    text = text.strip()
-
-    # Check for 万 format (e.g., "1.2万-1.8万", "8千-1.2万")
-    if "万" in text or "千" in text:
-        import re
-
-        nums = re.findall(r"(\d+(?:\.\d+)?)", text)
-        multipliers: list[float] = []
-        for part in re.split(r"[-~]", text):
-            if "万" in part:
-                m = re.search(r"(\d+(?:\.\d+)?)", part)
-                if m:
-                    multipliers.append(float(m.group(1)) * 10000)
-            elif "千" in part:
-                m = re.search(r"(\d+(?:\.\d+)?)", part)
-                if m:
-                    multipliers.append(float(m.group(1)) * 1000)
-        if len(multipliers) >= 2:
-            return int(multipliers[0]), int(multipliers[1])
-        if len(multipliers) == 1:
-            return int(multipliers[0]), None
-        return None, None
-
-    # K/k format (e.g., "15K-25K", "8k-12k", "15K以上")
-    import re
-
-    if "K" not in text and "k" not in text:
-        # Try pure number format (e.g., "15000-25000")
-        nums = re.findall(r"(\d+)", text)
-        if len(nums) >= 2:
-            return int(nums[0]), int(nums[1])
-        if len(nums) == 1:
-            return int(nums[0]), None
-        return None, None
-
-    nums = re.findall(r"(\d+(?:\.\d+)?)", text)
-    if len(nums) >= 2:
-        return int(float(nums[0]) * 1000), int(float(nums[1]) * 1000)
-    if len(nums) == 1:
-        return int(float(nums[0]) * 1000), None
-    return None, None
+    """Parse Zhilian salary strings via the shared cross-platform parser."""
+    return parse_salary_text(text)

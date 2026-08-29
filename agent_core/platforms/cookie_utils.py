@@ -1,7 +1,7 @@
 """Cookie format conversion: browser-export JSON -> Playwright-format cookie file.
 
 Shared by the `job-agent import-cookies` CLI command and the standalone
-`import_cookies.py` script.
+`scripts/import_cookies.py` script.
 """
 
 import json
@@ -11,7 +11,7 @@ from pathlib import Path
 SESSION_COOKIES = {
     "boss_zhipin": {"wt2", "wbg", "boss_token", "__zp_stoken__"},
     "liepin": {"lt_auth", "lt_auth_v2", "XSRF-TOKEN"},
-    "zhilian": {"x-zp-client-id", "FSSBBIl1UgzbN7NS", "zp_passport_deepknow_sessionId"},
+    "zhilian": {"x-zp-client-id", "at", "rt", "x-zp-device-sn"},
 }
 
 
@@ -30,6 +30,46 @@ def convert(exported: list, domain_filter: str = "") -> list:
                 "name": c.get("name", ""),
                 "value": c.get("value", ""),
                 "domain": domain,
+                "path": c.get("path", "/"),
+                "expires": c.get("expirationDate") or c.get("expires") or -1,
+                "httpOnly": bool(c.get("httpOnly", False)),
+                "secure": bool(c.get("secure", False)),
+                "sameSite": same,
+            }
+        )
+    return out
+
+
+def load_cookies_for_playwright(cookie_path: str) -> list:
+    """Load a cookie JSON file and normalize it for Playwright ``add_cookies``.
+
+    Accepts both a bare array (Cookie-Editor export) and a dict with a
+    ``cookies`` key. Missing/invalid files return an empty list.
+    """
+    path = Path(cookie_path)
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if isinstance(raw, dict):
+        raw = raw.get("cookies", [])
+    if not isinstance(raw, list):
+        return []
+
+    out = []
+    for c in raw:
+        if not isinstance(c, dict) or not c.get("name"):
+            continue
+        same = (c.get("sameSite") or "Lax").capitalize()
+        if same not in ("Strict", "Lax", "None"):
+            same = "Lax"
+        out.append(
+            {
+                "name": c.get("name", ""),
+                "value": c.get("value", ""),
+                "domain": c.get("domain", ""),
                 "path": c.get("path", "/"),
                 "expires": c.get("expirationDate") or c.get("expires") or -1,
                 "httpOnly": bool(c.get("httpOnly", False)),

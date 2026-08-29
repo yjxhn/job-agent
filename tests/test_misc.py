@@ -1,4 +1,4 @@
-"""Misc coverage: providers, cron_parser, platform stubs, search integration, base.Job."""
+"""Misc coverage: providers, platform stubs, search integration, base.Job."""
 
 import asyncio
 from datetime import UTC, datetime
@@ -17,27 +17,6 @@ def cfg():
 
 def _now():
     return datetime.now(UTC)
-
-
-# ---------- cron_parser ----------
-
-
-def test_cron_parser_parse_units():
-    from agent_core.scheduler.cron_parser import parse
-
-    assert parse("6h") == 6
-    assert parse("1d") == 24
-    assert parse("90m") == 1  # 90 // 60
-    assert parse("5") == 5
-    assert parse("garbage") == 6  # default fallback
-
-
-def test_cron_parser_fmt():
-    from agent_core.scheduler.cron_parser import fmt
-
-    assert fmt(24) == "1d"
-    assert fmt(48) == "2d"
-    assert fmt(6) == "6h"
 
 
 # ---------- providers ----------
@@ -89,6 +68,119 @@ def test_create_provider_deepseek(monkeypatch):
     cfg = load_config("config.yaml")
     p = create_provider(cfg)
     assert isinstance(p, DeepSeekProvider)
+
+
+# ---------- thinking mode ----------
+
+
+def test_thinking_disabled_by_default_in_config():
+    """thinking.enabled defaults to False — backward compatible."""
+    from agent_core.config import ThinkingConfig
+
+    tc = ThinkingConfig()
+    assert tc.enabled is False
+    assert tc.effort == "high"
+
+
+def test_thinking_effort_validation():
+    """effort must be one of the accepted values."""
+    from agent_core.config import ThinkingConfig
+
+    ThinkingConfig(effort="high")
+    ThinkingConfig(effort="max")
+    ThinkingConfig(effort="low")
+    ThinkingConfig(effort="medium")
+    ThinkingConfig(effort="xhigh")
+    with pytest.raises(ValueError, match="thinking.effort"):
+        ThinkingConfig(effort="invalid")
+
+
+def test_thinking_disabled_no_reasoning_kwargs():
+    """When thinking_enabled=False, _thinking_kwargs returns empty dict."""
+    from agent_core.llm.providers import DeepSeekProvider
+
+    p = DeepSeekProvider(api_key="k", thinking_enabled=False)
+    assert p._thinking_kwargs() == {}
+
+
+def test_thinking_enabled_adds_reasoning_kwargs():
+    """When thinking_enabled=True, _thinking_kwargs returns reasoning params."""
+    from agent_core.llm.providers import DeepSeekProvider
+
+    p = DeepSeekProvider(api_key="k", thinking_enabled=True, thinking_effort="max")
+    kw = p._thinking_kwargs()
+    assert kw["reasoning_effort"] == "max"
+    assert kw["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+def test_chat_no_temperature_when_thinking(monkeypatch):
+    """chat() with thinking enabled omits temperature from API call."""
+    from agent_core.llm.providers import DeepSeekProvider
+
+    p = DeepSeekProvider(api_key="k", thinking_enabled=True, thinking_effort="high")
+    p.client = MagicMock()
+    mock_msg = MagicMock(content="hi", reasoning_content="Let me think...")
+    p.client.chat.completions.create = AsyncMock(
+        return_value=MagicMock(choices=[MagicMock(message=mock_msg)])
+    )
+    asyncio.run(p.chat(messages=[{"role": "user", "content": "x"}], temperature=0.7))
+    kw = p.client.chat.completions.create.call_args.kwargs
+    assert "temperature" not in kw
+    assert kw["reasoning_effort"] == "high"
+    assert kw["extra_body"] == {"thinking": {"type": "enabled"}}
+
+
+def test_chat_with_tools_captures_reasoning_content():
+    """chat_with_tools with thinking enabled captures reasoning_content in ChatResponse."""
+    from agent_core.llm.providers import DeepSeekProvider
+
+    p = DeepSeekProvider(api_key="k", thinking_enabled=True, thinking_effort="high")
+    p.client = MagicMock()
+    fake_tool_call = MagicMock()
+    fake_tool_call.id = "call_1"
+    fake_tool_call.function.name = "search_jobs"
+    fake_tool_call.function.arguments = '{"keywords":["Python"]}'
+    fake_msg = MagicMock()
+    fake_msg.content = "Let me search that for you."
+    fake_msg.reasoning_content = "User wants to search jobs. I should call search_jobs."
+    fake_msg.tool_calls = [fake_tool_call]
+    fake_choice = MagicMock()
+    fake_choice.message = fake_msg
+    p.client.chat.completions.create = AsyncMock(return_value=MagicMock(choices=[fake_choice]))
+    resp = asyncio.run(
+        p.chat_with_tools(
+            messages=[{"role": "user", "content": "find Python jobs"}],
+            tools=[{"type": "function", "function": {"name": "search_jobs", "parameters": {}}}],
+        )
+    )
+    assert resp.reasoning_content is not None
+    assert "search_jobs" in resp.reasoning_content
+    assert len(resp.tool_calls) == 1
+    assert resp.tool_calls[0].name == "search_jobs"
+    assert resp.tool_calls[0].id == "call_1"
+
+
+def test_chat_with_tools_no_reasoning_when_thinking_disabled():
+    """chat_with_tools with thinking disabled: reasoning_content is None, temperature present."""
+    from agent_core.llm.providers import DeepSeekProvider
+
+    p = DeepSeekProvider(api_key="k", thinking_enabled=False)
+    p.client = MagicMock()
+    p.client.chat.completions.create = AsyncMock(
+        return_value=MagicMock(choices=[MagicMock(message=MagicMock(content="ok"))])
+    )
+    resp = asyncio.run(
+        p.chat_with_tools(
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[{"type": "function", "function": {"name": "search_jobs", "parameters": {}}}],
+            temperature=0.7,
+        )
+    )
+    assert resp.reasoning_content is None
+    kw = p.client.chat.completions.create.call_args.kwargs
+    assert kw["temperature"] == 0.7
+    assert "reasoning_effort" not in kw
+    assert "extra_body" not in kw
 
 
 # ---------- call_llm_with_retry ----------
@@ -198,12 +290,49 @@ async def test_call_llm_with_retry_non_retryable_error_passes_through():
     assert provider.chat.call_count == 1  # no retry for non-429
 
 
+@pytest.mark.asyncio
+async def test_call_llm_with_retry_times_out():
+    """LLM 长时间不返回时必须有总超时，不能无限等。"""
+    from agent_core.llm.providers import call_llm_with_retry
+
+    provider = AsyncMock()
+
+    async def slow_chat(*a, **kw):
+        await asyncio.sleep(10)
+        return "late"
+
+    provider.chat = slow_chat
+    with pytest.raises(TimeoutError):
+        await call_llm_with_retry(
+            provider, messages=[{"role": "user", "content": "hi"}], timeout=0.01
+        )
+
+
 # ---------- platform stubs ----------
 
 
-def test_zhilian_no_cookie_returns_empty():
+def test_zhilian_no_cookie_returns_empty(monkeypatch):
     """Zhilian adapter returns empty list when no cookie is available."""
     from agent_core.platforms.zhilian import ZhilianAdapter
+
+    # Mock browser path -> empty (forces HTTP fallback)
+    class _MockBrowser:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def search(self, *a, **kw):
+            return []
+
+        async def close(self):
+            pass
+
+    async def _mock_get_browser(profile_dir="data/zhilian_browser_profile", headless=False):
+        return _MockBrowser()
+
+    monkeypatch.setattr(
+        "agent_core.platforms.zhilian_browser.get_browser",
+        _mock_get_browser,
+    )
 
     jobs = asyncio.run(ZhilianAdapter().search(["x"], "全国"))
     assert jobs == [], "Should return empty list when no cookie"
@@ -248,7 +377,7 @@ def test_search_all_runs_adapters_and_dedups(cfg, monkeypatch):
     monkeypatch.setattr(BossZhipinAdapter, "search", fake_search)
     monkeypatch.setattr(LiepinAdapter, "search", fake_search)
 
-    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"]))
+    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"], keywords=["AMR"]))
     assert len(jobs) >= 1
     assert jobs[0].title == "AMR"
 
@@ -259,7 +388,7 @@ def test_search_all_empty_when_no_platforms(cfg, monkeypatch):
     # Disable all platforms
     for p in cfg.platforms.values():
         p.enabled = False
-    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"]))
+    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"], keywords=["AMR"]))
     assert jobs == []
 
 

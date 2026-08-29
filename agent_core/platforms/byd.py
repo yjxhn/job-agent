@@ -10,7 +10,15 @@ API discovery (2026-06-23):
     positionTypeId, createTime, divisionCode, detail}]}}
   No salary in list response.
 
-Status: Live API confirmed 2026-06-23. No cookie/auth required.
+Known issues (2026-06-28):
+  - vagueCondition rejects Chinese characters with HTTP 400.
+  - API pagination is broken (pages overlap 80-95% regardless of pageSize).
+  - English keywords (e.g. "Python") return 0 results because BYD genuinely
+    has few software positions.
+  Workaround: discover positionTypeIds from one no-filter call, then fetch
+  one page per type (pageSize=100) to cover ~666 unique jobs (~28% of total).
+
+Status: Live API confirmed 2026-06-28. No cookie/auth required.
 """
 
 import asyncio
@@ -26,6 +34,7 @@ from agent_core.platforms.base import Job, PlatformAdapter
 logger = logging.getLogger(__name__)
 
 API_SEARCH = "https://job.byd.com/portal/api/portal-api/position/queryList"
+_PAGE_SIZE = 100  # max per request; BYD pagination is broken (pages 80-95% overlap)
 
 _SSL_CONTEXT = ssl.create_default_context()
 
@@ -33,8 +42,9 @@ _SSL_CONTEXT = ssl.create_default_context()
 class BydAdapter(PlatformAdapter):
     name = "byd"
 
-    def __init__(self, rate_limit_seconds: int | None = None):
+    def __init__(self, rate_limit_seconds: int | None = None, max_pages: int | None = None):
         self._rate_limit_seconds = rate_limit_seconds if rate_limit_seconds is not None else 1.0
+        self.max_pages = max_pages if max_pages and max_pages > 0 else 1
 
     async def search(
         self,
@@ -58,8 +68,20 @@ class BydAdapter(PlatformAdapter):
         logger.info(f"[BYD] {len(jobs)} jobs total for keywords {keywords[:3]}")
         return jobs
 
-    async def _search_keyword_api(self, keyword: str, location: str) -> list[Job]:
-        """Call BYD POST /portal/api/portal-api/position/queryList."""
+    def _build_headers(self) -> dict[str, str]:
+        return {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/149.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json",
+            "lang": "zh_CN",
+            "Referer": "https://job.byd.com/",
+        }
+
+    def _build_body(self, keyword: str, page_num: int = 0, page_size: int | None = None) -> bytes:
         body = {
             "positionTypeArr": [],
             "positionProvinceArr": [],
@@ -68,60 +90,85 @@ class BydAdapter(PlatformAdapter):
             "vagueCondition": keyword,
             "searchType": 1,
             "zpType": "00251",
-            "pageNum": 0,
-            "pageSize": 20,
+            "pageNum": page_num,
+            "pageSize": page_size if page_size is not None else _PAGE_SIZE,
         }
-        body_bytes = json.dumps(body).encode("utf-8")
+        return json.dumps(body).encode("utf-8")
 
-        req = urllib.request.Request(
-            API_SEARCH,
-            data=body_bytes,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/149.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/json, text/plain, */*",
-                "Content-Type": "application/json",
-                "lang": "zh_CN",
-                "Referer": "https://job.byd.com/",
-            },
-            method="POST",
-        )
+    async def _search_keyword_api(self, keyword: str, location: str) -> list[Job]:
+        """Call BYD POST API with keyword, paging per search_max_pages.
 
-        def _fetch() -> bytes:
-            with urllib.request.urlopen(req, timeout=20, context=_SSL_CONTEXT) as r:  # nosec B310
-                return r.read()
-
-        try:
-            raw = await asyncio.to_thread(_fetch)
-            obj = json.loads(raw.decode("utf-8", "replace"))
-        except urllib.error.HTTPError as e:
-            logger.error(f"[BYD] HTTP {e.code} for '{keyword}': {e.reason}")
-            return []
-        except Exception as e:
-            logger.error(f"[BYD] API error for '{keyword}': {e}")
+        BYD pagination is known to overlap heavily (80-95%), so duplicate job
+        IDs are expected and handled by the cross-platform dedup layer.
+        """
+        if not keyword:
             return []
 
-        code = obj.get("code")
-        data = obj.get("data", {})
-        items = data.get("data", [])
-        total = data.get("total", 0)
+        jobs: list[Job] = []
+        for page_num in range(self.max_pages):
+            try:
+                req = urllib.request.Request(
+                    API_SEARCH,
+                    data=self._build_body(keyword, page_num=page_num),
+                    headers=self._build_headers(),
+                    method="POST",
+                )
 
-        if code != 0:
-            logger.warning(f"[BYD] API code={code} for '{keyword}'")
-            return []
+                def _fetch() -> bytes:
+                    with urllib.request.urlopen(
+                        req, timeout=20, context=_SSL_CONTEXT
+                    ) as r:  # nosec B310
+                        return r.read()
 
+                raw = await asyncio.to_thread(_fetch)
+                obj = json.loads(raw.decode("utf-8", "replace"))
+                code = obj.get("code")
+
+                if code == 0:
+                    data = obj.get("data", {})
+                    items = data.get("data", [])
+                    total = data.get("total", 0)
+                    if items:
+                        jobs.extend(self._parse_items(items))
+                        logger.info(
+                            "[BYD] keyword '%s' page %d: %d jobs (API total=%d)",
+                            keyword,
+                            page_num + 1,
+                            len(items),
+                            total,
+                        )
+                        if page_num < self.max_pages - 1:
+                            await asyncio.sleep(self._rate_limit_seconds)
+                        continue
+                logger.info(
+                    "[BYD] Keyword '%s' page %d yielded 0 API results, returning empty "
+                    "(fallback removed)",
+                    keyword,
+                    page_num + 1,
+                )
+                break
+            except urllib.error.HTTPError as e:
+                # 2026-08-11 用户决策：不再 fallback 全量客户端过滤。
+                logger.info(
+                    "[BYD] Keyword API rejected '%s' (HTTP %d), returning empty (fallback removed)",
+                    keyword,
+                    e.code,
+                )
+                break
+            except Exception as e:
+                logger.error("[BYD] API error for '%s': %s", keyword, e)
+                break
+
+        return jobs
+
+    def _parse_items(self, items: list[dict]) -> list[Job]:
         jobs: list[Job] = []
         for item in items:
             try:
                 jobs.append(self._api_item_to_job(item))
             except Exception as e:
-                logger.debug(f"[BYD] Skip item: {e}")
+                logger.debug("[BYD] Skip item: %s", e)
                 continue
-
-        logger.info(f"[BYD] '{keyword}': {len(jobs)} jobs (total={total})")
         return jobs
 
     def _api_item_to_job(self, item: dict) -> Job:
@@ -167,7 +214,10 @@ class BydAdapter(PlatformAdapter):
         # URL
         url = f"https://job.byd.com/portal/pc/#/social/socialPositionDetail?positionCode={position_code}"
 
-        unique_id = hashlib.md5((f"byd{position_code}").encode()).hexdigest()[:16]  # nosec B324
+        fallback = f"{title}|{location}" if title else position_code
+        unique_id = hashlib.md5(  # nosec B324 -- job ID, not security
+            (f"byd{position_code or fallback}").encode()
+        ).hexdigest()[:16]
 
         job = self.normalize(
             {
@@ -182,17 +232,6 @@ class BydAdapter(PlatformAdapter):
             }
         )
         job.security_id = position_code
+        job.lid = url  # detail URL so fetch_full_jd can actually run
+        job.published_at = item.get("createTime", "") or ""
         return job
-
-    def normalize(self, raw: dict) -> Job:
-        return Job(
-            id=raw.get("id", ""),
-            title=raw.get("title", ""),
-            company=raw.get("company", ""),
-            location=raw.get("location", ""),
-            salary_min=raw.get("salary_min"),
-            salary_max=raw.get("salary_max"),
-            description=raw.get("description", ""),
-            platforms=[self.name],
-            urls={self.name: raw.get("url", "")},
-        )

@@ -15,7 +15,14 @@ LOCK_FILE = _PROJECT_ROOT / "data" / "scheduler.lock"
 
 
 def _default_state():
-    return {"enabled": False, "last_run": None, "runs": 0, "directions": [], "last_error": None}
+    return {
+        "enabled": False,
+        "last_run": None,
+        "runs": 0,
+        "directions": [],
+        "last_error": None,
+        "last_reminder_at": None,
+    }
 
 
 def _load():
@@ -143,11 +150,20 @@ async def run_scheduled_search(config, llm_provider, db):
         return
     now = datetime.now(UTC)
     hours = config.schedule.interval_hours
-    local_h = datetime.now().hour
+    # Quiet hours are configured in LOCAL wall-clock time; resolve the local
+    # hour explicitly with a timezone so the two clock bases never get mixed
+    # (UTC clock above is for persistence/catch-up, this one for the user's
+    # quiet-hours window).
+    local_h = datetime.now().astimezone().hour
     qh = config.schedule.quiet_hours
-    if qh and qh[0] <= local_h < qh[1]:
-        logger.debug(f"Quiet hours {qh}, skip")
-        return
+    # Support both non-wrapping ([8,18]) and midnight-wrapping ([22,8]) ranges.
+    if qh and len(qh) >= 2:
+        start, end = qh[0], qh[1]
+        if (start < end and start <= local_h < end) or (
+            start > end and (local_h >= start or local_h < end)
+        ):
+            logger.debug(f"Quiet hours {qh}, skip")
+            return
 
     is_catchup = False
     last = s.get("last_run")
@@ -170,40 +186,74 @@ async def run_scheduled_search(config, llm_provider, db):
         data = await run_pipeline(
             config,
             llm_provider,
-            stages=["search", "filter", "prescreen", "match"],
+            stages=["search", "filter", "enrich", "match"],
             directions=s["directions"] or config.schedule.directions,
             headless=True,
+            interactive=False,
         )
         matched = data.get("matched", [])
         total = len(matched)
-        try:
-            from agent_core.notify.windows_toast import notify_search_complete
-
-            notify_search_complete(total, data.get("skipped", 0))
-        except Exception as e:
-            # F5: was `except: pass`
-            logger.warning(f"Notify failed: {e}")
+        # NOTE: run_pipeline() already sends notify_search_complete() at the end
+        # of a successful run. Sending it again here produced duplicate toasts.
         s["last_run"] = now.isoformat()
         s["runs"] = s.get("runs", 0) + 1
         s["last_error"] = None
         _save(s)
-        for pn in config.platforms:
-            if config.platforms[pn].enabled:
-                db.execute(
-                    "INSERT INTO search_status(search_id,platform,status,"
-                    "result_count,created_at) VALUES(?,?,?,?,?)",
-                    (
-                        f"sched_{now.isoformat()}",
-                        pn,
-                        "success" if total > 0 else "no_results",
-                        total,
-                        now.isoformat(),
-                    ),
-                )
+        # Per-platform search_status rows are persisted by run_pipeline()
+        # (search stage) using real per-platform counts.
         db.commit()
         logger.info(f"Scheduler done: {total} jobs")
+        # Application follow-up reminders (independent of search).
+        try:
+            check_application_reminders(config, db)
+        except Exception as e:
+            logger.warning(f"Application reminder check failed: {e}")
     except Exception as e:
         logger.error(f"Scheduler failed: {e}")
         s["last_run"] = now.isoformat()
         s["last_error"] = str(e)
         _save(s)
+
+
+def check_application_reminders(config, db) -> int:
+    """Toast-remind applications not updated in `reminder_days` (skips 已终止).
+
+    Reads reminder_days from scheduler_state (set via dashboard UI) or
+    config.schedule.reminder_days. Returns count of reminded applications.
+    """
+    from datetime import datetime, timedelta
+
+    state = _load()
+    now = datetime.now(UTC)
+    last_reminder_at = state.get("last_reminder_at")
+    if last_reminder_at:
+        try:
+            last_reminder = datetime.fromisoformat(last_reminder_at)
+            if last_reminder.tzinfo is None:
+                last_reminder = last_reminder.replace(tzinfo=UTC)
+            # 最多每天提醒一次，避免后台循环/定时任务重复弹 Toast
+            if now - last_reminder < timedelta(hours=24):
+                return 0
+        except ValueError:
+            logger.warning(f"Bad last_reminder_at '{last_reminder_at}'; resetting")
+    days = state.get("reminder_days") or config.schedule.reminder_days
+    cutoff = now - timedelta(days=days)
+    try:
+        rows = db.execute(
+            "SELECT COUNT(*) FROM applications WHERE status != '已终止' AND updated_at < ?",
+            (cutoff.isoformat(),),
+        ).fetchone()
+        count = rows[0] if rows else 0
+    except Exception as e:
+        logger.warning(f"Application reminder query failed: {e}")
+        return 0
+    if count > 0:
+        try:
+            from agent_core.notify.windows_toast import notify_application_reminder
+
+            notify_application_reminder(count)
+            state["last_reminder_at"] = now.isoformat()
+            _save(state)
+        except Exception as e:
+            logger.warning(f"notify_application_reminder failed: {e}")
+    return count

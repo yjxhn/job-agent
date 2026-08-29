@@ -5,10 +5,25 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent_core.server import serve
 from agent_core.storage.db import get_db, migrate
 
 # ==================================================================== helpers ---
+
+
+@pytest.fixture(autouse=True)
+def _restore_handler_db_path():
+    """Restore serve.Handler.db_path after each test.
+
+    Several tests mutate the class attribute (serve.Handler.db_path = ...) and
+    never restore it; a later assertion in tests/test_serve.py expecting the
+    default "data/agent.db" then fails intermittently depending on collection
+    order. This autouse fixture guarantees the attribute is always reset.
+    """
+    yield
+    serve.Handler.db_path = "data/agent.db"
 
 
 def _make_handler(db_path=None):
@@ -42,14 +57,6 @@ def _mock_request(path="/api/results", headers=None):
 def test_logger_exists():
     """Test that logger is set up (print→logging)."""
     assert hasattr(serve, "logger")
-    assert serve.logger.name == "agent_core.server.serve"
-
-
-def test_start_server_logging():
-    """Test start_server configures logging."""
-    with patch.object(serve, "HTTPServer") as mock_server:
-        mock_server.return_value.serve_forever = MagicMock()
-        serve.start_server(port=1, db_path=":memory:")
     assert serve.logger.name == "agent_core.server.serve"
 
 
@@ -168,7 +175,10 @@ def test_openapi_spec_loaded():
     assert "info" in spec
     assert "paths" in spec
     assert "/api/results" in spec["paths"]
-    assert "/api/timeline" in spec["paths"]
+    assert "/api/flag/{job_id}" in spec["paths"]
+    assert "/api/offer/evaluate" in spec["paths"]
+    # /api/timeline was removed (no such route in serve.py); ensure it's gone
+    assert "/api/timeline" not in spec["paths"]
     assert "/api/openapi.json" in spec["paths"]
 
 
@@ -196,14 +206,6 @@ def test_docs_html():
 def test_html_has_docs_link():
     """Test dashboard HTML has link to /docs."""
     assert "/docs" in serve.HTML
-
-
-def test_html_has_pagination_elements():
-    """Test dashboard HTML has pagination JS elements."""
-    assert "jobsPgn" in serve.HTML
-    assert "tlPgn" in serve.HTML
-    assert "loadJobs" in serve.HTML
-    assert "loadTimeline" in serve.HTML
 
 
 # ===================================================== paginated results ---
@@ -308,170 +310,6 @@ def test_api_results_legacy_no_page(tmp_path):
     assert len(data) == 1
 
 
-def test_api_timeline_paginated(tmp_path):
-    """Test /api/timeline with page param returns paginated envelope."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
-
-    conn.execute(
-        "INSERT INTO jobs (id, title, company, location, direction, first_seen, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("tp_job", "Tl Paginated", "Co", "City", "industrial_ai_agent"),
-    )
-    conn.execute(
-        "INSERT INTO applications (job_id, status, resume_version, applied_at, updated_at) "
-        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-        ("tp_job", "Offer", "v1"),
-    )
-    app_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    for i in range(12):
-        conn.execute(
-            "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-            "VALUES (?, ?, ?, datetime('now', ? || ' hours'))",
-            (app_id, f"from_{i}", f"to_{i}", str(-i)),
-        )
-    conn.commit()
-    conn.close()
-
-    serve.Handler.db_path = db_path
-    params = {"page": ["1"], "page_size": ["5"]}
-    h = _mock_request()
-    serve.Handler._api_timeline(h, params)
-
-    wfile_val = h.wfile.getvalue()
-    data = json.loads(wfile_val)
-    assert data["page"] == 1
-    assert data["page_size"] == 5
-    assert data["total"] == 12
-    assert data["pages"] == 3
-    assert len(data["items"]) == 5
-
-
-def test_api_timeline_paginated_page3(tmp_path):
-    """Test /api/timeline last page."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
-
-    conn.execute(
-        "INSERT INTO jobs (id, title, company, location, direction, first_seen, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("tp3_job", "Tl P3", "Co", "City", "industrial_ai_agent"),
-    )
-    conn.execute(
-        "INSERT INTO applications (job_id, status, resume_version, applied_at, updated_at) "
-        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-        ("tp3_job", "已投递", "v1"),
-    )
-    app_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    for i in range(7):
-        conn.execute(
-            "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-            "VALUES (?, ?, ?, datetime('now', ? || ' hours'))",
-            (app_id, f"f_{i}", f"t_{i}", str(-i)),
-        )
-    conn.commit()
-    conn.close()
-
-    serve.Handler.db_path = db_path
-    params = {"page": ["2"], "page_size": ["5"]}
-    h = _mock_request()
-    serve.Handler._api_timeline(h, params)
-
-    wfile_val = h.wfile.getvalue()
-    data = json.loads(wfile_val)
-    assert data["page"] == 2
-    assert data["total"] == 7
-    assert data["pages"] == 2
-    assert len(data["items"]) == 2
-
-
-def test_api_timeline_legacy_no_page(tmp_path):
-    """Test /api/timeline without page returns flat list (backward compat)."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
-
-    conn.execute(
-        "INSERT INTO jobs (id, title, company, location, direction, first_seen, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("tl_legacy", "Legacy TL", "Co", "City", "industrial_ai_agent"),
-    )
-    conn.execute(
-        "INSERT INTO applications (job_id, status, resume_version, applied_at, updated_at) "
-        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-        ("tl_legacy", "已投递", "v1"),
-    )
-    app_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.execute(
-        "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-        "VALUES (?, ?, ?, datetime('now'))",
-        (app_id, "", "已投递"),
-    )
-    conn.commit()
-    conn.close()
-
-    serve.Handler.db_path = db_path
-    params: dict[str, list[str]] = {}
-    h = _mock_request()
-    serve.Handler._api_timeline(h, params)
-
-    wfile_val = h.wfile.getvalue()
-    data = json.loads(wfile_val)
-    assert isinstance(data, list)  # flat list
-    assert len(data) == 1
-
-
-# =========================================== paginated with combined filters ---
-
-
-def test_api_timeline_paginated_with_event_filter(tmp_path):
-    """Test /api/timeline page + event_type filter."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
-
-    conn.execute(
-        "INSERT INTO jobs (id, title, company, location, direction, first_seen, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("tf_job", "Tl F", "Co", "City", "industrial_ai_agent"),
-    )
-    conn.execute(
-        "INSERT INTO applications (job_id, status, resume_version, applied_at, updated_at) "
-        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-        ("tf_job", "Offer", "v1"),
-    )
-    app_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.execute(
-        "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-        "VALUES (?, ?, ?, datetime('now', '-2 hours'))",
-        (app_id, "", "已投递"),
-    )
-    conn.execute(
-        "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-        "VALUES (?, ?, ?, datetime('now', '-1 hour'))",
-        (app_id, "已投递", "约面"),
-    )
-    conn.execute(
-        "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-        "VALUES (?, ?, ?, datetime('now') )",
-        (app_id, "约面", "Offer"),
-    )
-    conn.commit()
-    conn.close()
-
-    serve.Handler.db_path = db_path
-    params = {"page": ["1"], "page_size": ["5"], "event_type": ["Offer"]}
-    h = _mock_request()
-    serve.Handler._api_timeline(h, params)
-
-    wfile_val = h.wfile.getvalue()
-    data = json.loads(wfile_val)
-    assert data["total"] == 1
-    assert data["items"][0]["to_status"] == "Offer"
-
-
 # ==================================================== 404 / error handling ---
 
 
@@ -511,7 +349,6 @@ def test_handler_class_attributes():
     assert hasattr(serve.Handler, "db_path")
     assert hasattr(serve.Handler, "do_GET")
     assert hasattr(serve.Handler, "_api_results")
-    assert hasattr(serve.Handler, "_api_timeline")
     assert hasattr(serve.Handler, "_serve_openapi")
     assert hasattr(serve.Handler, "_require_auth")
     assert hasattr(serve.Handler, "log_message")
@@ -533,7 +370,7 @@ def test_do_get_root_path(tmp_path):
     h.send_response.assert_called_once_with(200)
     wfile_val = h.wfile.getvalue().decode("utf-8")
     assert "<!DOCTYPE html>" in wfile_val
-    assert "求职Agent Dashboard" in wfile_val
+    assert "<title>JobAgent</title>" in wfile_val
 
 
 def test_do_get_docs_path():
@@ -565,20 +402,6 @@ def test_do_get_results_with_auth_dev(tmp_path):
 
     with patch.dict(os.environ, {}, clear=True):
         h = _mock_request(path="/api/results")
-        serve.Handler.do_GET(h)
-        h.send_response.assert_called_once_with(200)
-
-
-def test_do_get_timeline_with_auth_dev(tmp_path):
-    """Test do_GET for /api/timeline (dev mode)."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
-    conn.close()
-    serve.Handler.db_path = db_path
-
-    with patch.dict(os.environ, {}, clear=True):
-        h = _mock_request(path="/api/timeline")
         serve.Handler.do_GET(h)
         h.send_response.assert_called_once_with(200)
 
@@ -625,37 +448,140 @@ def test_log_message():
         mock_log.assert_called_once()
 
 
-def test_timeline_paginated_with_job_id_filter(tmp_path):
-    """Test timeline pagination with job_id filter (covers lines 466-467)."""
-    db_path = str(tmp_path / "agent.db")
-    conn = get_db(db_path)
-    migrate(conn)
+# =========================================================== _api_offer_compare regression ---
 
-    conn.execute(
-        "INSERT INTO jobs (id, title, company, location, direction, first_seen, last_seen) "
-        "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("tjf_job", "TJF", "Co", "City", "industrial_ai_agent"),
-    )
-    conn.execute(
-        "INSERT INTO applications (job_id, status, resume_version, applied_at, updated_at) "
-        "VALUES (?, ?, ?, datetime('now'), datetime('now'))",
-        ("tjf_job", "已投递", "v1"),
-    )
-    app_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.execute(
-        "INSERT INTO timelines (application_id, from_status, to_status, created_at) "
-        "VALUES (?, ?, ?, datetime('now'))",
-        (app_id, "", "已投递"),
-    )
-    conn.commit()
-    conn.close()
 
-    serve.Handler.db_path = db_path
-    params = {"page": ["1"], "page_size": ["10"], "job_id": ["tjf_job"]}
-    h = _mock_request()
-    serve.Handler._api_timeline(h, params)
+class TestApiOfferCompareRegression:
+    """Regression tests for POST /api/offer/compare (2026-07-24 fix).
 
-    wfile_val = h.wfile.getvalue()
-    data = json.loads(wfile_val)
-    assert data["total"] == 1
-    assert data["items"][0]["job_id"] == "tjf_job"
+    Before the fix, _api_offer_compare called _send_json twice (the second
+    after write-to-disk + catalog), causing headers-already-sent / BrokenPipe.
+    After the fix: single _send_json, no write-to-disk, no catalog.
+    """
+
+    def test_offer_compare_single_response_no_side_effects(self, tmp_path, monkeypatch):
+        # --- db with offer_evaluations rows ---
+        db_path = str(tmp_path / "agent.db")
+        conn = get_db(db_path)
+        migrate(conn)
+        now = "2026-07-24T00:00:00"
+        conn.execute(
+            "INSERT INTO offer_evaluations "
+            "(offer_file_name, offer_file_path, company, title, parsed_fields, eval_input, "
+            "result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "a.txt",
+                "/f/a.txt",
+                "ACorp",
+                "SDE",
+                '{"company":"ACorp"}',
+                "{}",
+                '{"overall_score":8}',
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO offer_evaluations "
+            "(offer_file_name, offer_file_path, company, title, parsed_fields, eval_input, "
+            "result, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "b.txt",
+                "/f/b.txt",
+                "BCorp",
+                "PM",
+                '{"company":"BCorp"}',
+                "{}",
+                '{"overall_score":7}',
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        serve.Handler.db_path = db_path
+
+        # --- tmp offers dir with .txt files ---
+        offers_dir = tmp_path / "offers"
+        offers_dir.mkdir()
+        (offers_dir / "a.txt").write_text("公司名: ACorp\n职位名: SDE\n", encoding="utf-8")
+        (offers_dir / "b.txt").write_text("公司名: BCorp\n职位名: PM\n", encoding="utf-8")
+
+        # --- build handler ---
+        h = _mock_request(path="/api/offer/compare")
+        body = json.dumps({"file_names": ["a.txt", "b.txt"]}).encode()
+        h.rfile = io.BytesIO(body)
+        h.headers = {"Content-Length": str(len(body))}
+        monkeypatch.setattr(serve.Handler, "_offers_dir", lambda self: str(offers_dir))
+
+        # --- mock external dependencies ---
+        mock_config = MagicMock()
+        mock_provider = MagicMock()
+
+        async def _fake_compare(_config, _provider, _offers):
+            return "对比分析markdown"
+
+        with (
+            patch("agent_core.config.load_config", return_value=mock_config),
+            patch("agent_core.llm.providers.create_provider", return_value=mock_provider),
+            patch("agent_core.pipeline.offer_eval.compare", side_effect=_fake_compare),
+        ):
+            serve.Handler._api_offer_compare(h)
+
+        # === assertions ===
+        # 1. Single response: send_response called exactly once (core regression fix)
+        assert (
+            h.send_response.call_count == 1
+        ), f"Expected 1 send_response, got {h.send_response.call_count}"
+
+        # 2. Response body is valid JSON with expected fields
+        resp = json.loads(h.wfile.getvalue())
+        assert resp.get("ok") is True
+        assert len(resp.get("offers", [])) == 2
+        assert resp.get("best") is not None
+        assert resp["analysis"] == "对比分析markdown"
+
+        # 3. No write-to-disk side effects
+        compare_files = list(offers_dir.glob("*offer对比*"))
+        output_dir = tmp_path / "output"
+        output_files = list(output_dir.glob("*offer_compare*")) if output_dir.exists() else []
+        assert len(compare_files) == 0, f"Unexpected compare files in offers dir: {compare_files}"
+        assert len(output_files) == 0, f"Unexpected output files: {output_files}"
+
+    def test_offer_compare_save_is_separate_endpoint(self):
+        """Confirm write-disk logic lives in _api_offer_compare_save, not _api_offer_compare."""
+        import re
+
+        serve_py = os.path.join(os.path.dirname(__file__), "..", "agent_core", "server", "serve.py")
+        src = open(serve_py, encoding="utf-8").read()
+        m = re.search(r"(?ms)^    def _api_offer_compare\b.*?(?=^    def )", src)
+        assert m is not None, "Could not find _api_offer_compare method in serve.py"
+        body = m.group(0)
+        assert "catalog_file" not in body, (
+            "catalog_file found in _api_offer_compare; "
+            "write-disk logic should be in _api_offer_compare_save"
+        )
+        write_opens = re.findall(r'open\([^)]*["\']w["\']', body)
+        assert (
+            len(write_opens) == 0
+        ), f"Write-mode open() found in _api_offer_compare: {write_opens}"
+
+
+# ==================================================== dashboard JS syntax ---
+
+
+def test_dashboard_embedded_js_syntax(tmp_path):
+    """Inline dashboard JS must parse with node --check when Node is available."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    scripts = re.findall(r"<script>(.*?)</script>", serve.HTML, re.S)
+    assert scripts, "dashboard HTML must contain inline scripts"
+    for idx, js in enumerate(scripts):
+        f = tmp_path / f"dashboard_{idx}.js"
+        f.write_text(js, encoding="utf-8")
+        subprocess.run([node, "--check", str(f)], check=True, capture_output=True)

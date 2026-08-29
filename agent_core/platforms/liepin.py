@@ -9,7 +9,7 @@ import secrets
 import uuid
 from pathlib import Path
 
-from agent_core.platforms.base import Job, PlatformAdapter
+from agent_core.platforms.base import PlatformAdapter, parse_salary_text
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,9 @@ def _notify_cookie_expired(platform="猎聘"):
 class LiepinAdapter(PlatformAdapter):
     name = "liepin"
 
-    def __init__(self, rate_limit_seconds: int | None = None):
+    def __init__(self, rate_limit_seconds: int | None = None, max_pages: int | None = None):
         self._rate_limit_seconds = rate_limit_seconds if rate_limit_seconds is not None else 2.0
-        self._ANTI_BOT_BACKOFF_SECONDS = rate_limit_seconds if rate_limit_seconds else 300
+        self.max_pages = max_pages if max_pages and max_pages > 0 else 1
 
     async def search(
         self,
@@ -89,7 +89,7 @@ class LiepinAdapter(PlatformAdapter):
         if not cookies:
             logger.warning(
                 f"[猎聘] No cookie at {cookie_path}; "
-                f"run `job-agent login --platform liepin` or import_cookies.py first"
+                f"run `job-agent login --platform liepin` or scripts/import_cookies.py first"
             )
             _notify_cookie_expired()
             return []
@@ -101,126 +101,133 @@ class LiepinAdapter(PlatformAdapter):
         city_code = CITY_CODES.get(location, "")  # default empty string = nationwide
 
         jobs = []
-        for keyword in keywords[:2]:
+        kw_list = keywords[:2]
+        for idx, keyword in enumerate(kw_list):
             jobs.extend(
                 await self._search_keyword_api(keyword, city_code, cookie_str, rate_limit_seconds)
             )
-            await asyncio.sleep(2)  # inter-keyword rate limit
+            if idx < len(kw_list) - 1:
+                await asyncio.sleep(self._rate_limit_seconds)
         logger.info(f"[猎聘] {len(jobs)} jobs total for keywords {keywords[:2]}")
         return jobs
 
     async def _search_keyword_api(self, keyword, city_code, cookie_str, rate_limit_seconds=None):
-        """Call 猎聘 joblist JSON API for one keyword."""
+        """Call 猎聘 joblist JSON API for one keyword, paging per search_max_pages."""
         import urllib.error
         import urllib.request
 
-        # Build request body
-        body_data = {
-            "data": {
-                "mainSearchPcConditionForm": {
-                    "city": city_code,
-                    "dq": city_code,
-                    "currentPage": 0,
-                    "pageSize": 40,
-                    "key": keyword,
-                    "suggestTag": "",
-                    "workYearCode": "0",
-                    "compId": "",
-                    "compName": "",
-                    "compTag": "",
-                    "industry": "",
-                    "salaryCode": "",
-                    "jobKind": "",
-                    "compScale": "",
-                    "compKind": "",
-                    "compStage": "",
-                    "eduLevel": "",
-                    "otherCity": "",
-                    "salaryLow": "",
-                    "salaryHigh": "",
-                    "hrActiveTimeCode": "",
-                },
-                "passThroughForm": {
-                    "sfrom": "search_job_pc",
-                    "ckId": secrets.token_hex(16),
-                    "scene": "input",
-                    "skId": secrets.token_hex(16),
-                    "fkId": secrets.token_hex(16),
-                },
+        jobs = []
+        for current_page in range(self.max_pages):
+            # Build request body
+            body_data = {
+                "data": {
+                    "mainSearchPcConditionForm": {
+                        "city": city_code,
+                        "dq": city_code,
+                        "currentPage": current_page,
+                        "pageSize": 40,
+                        "key": keyword,
+                        "suggestTag": "",
+                        "workYearCode": "0",
+                        "compId": "",
+                        "compName": "",
+                        "compTag": "",
+                        "industry": "",
+                        "salaryCode": "",
+                        "jobKind": "",
+                        "compScale": "",
+                        "compKind": "",
+                        "compStage": "",
+                        "eduLevel": "",
+                        "otherCity": "",
+                        "salaryLow": "",
+                        "salaryHigh": "",
+                        "hrActiveTimeCode": "",
+                    },
+                    "passThroughForm": {
+                        "sfrom": "search_job_pc",
+                        "ckId": secrets.token_hex(16),
+                        "scene": "input",
+                        "skId": secrets.token_hex(16),
+                        "fkId": secrets.token_hex(16),
+                    },
+                }
             }
-        }
-        body = json.dumps(body_data, ensure_ascii=False).encode("utf-8")
+            body = json.dumps(body_data, ensure_ascii=False).encode("utf-8")
 
-        # Extract XSRF-TOKEN from cookie string
-        xsrf_token = ""  # nosec B105 -- empty string init, not a password
-        for pair in cookie_str.split(";"):
-            pair = pair.strip()
-            if pair.startswith("XSRF-TOKEN="):
-                xsrf_token = pair.split("=", 1)[1]
+            # Extract XSRF-TOKEN from cookie string
+            xsrf_token = ""  # nosec B105 -- empty string init, not a password
+            for pair in cookie_str.split(";"):
+                pair = pair.strip()
+                if pair.startswith("XSRF-TOKEN="):
+                    xsrf_token = pair.split("=", 1)[1]
+                    break
+
+            req = urllib.request.Request(
+                SEARCH_API,
+                data=body,
+                method="POST",
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/125.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "zh-CN,zh;q=0.9",
+                    "Content-Type": "application/json;charset=UTF-8",
+                    "Origin": BASE_URL,
+                    "Referer": f"{BASE_URL}/",
+                    "X-Client-Type": "web",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "X-XSRF-TOKEN": xsrf_token,
+                    "X-Fscp-Version": "1.1",
+                    "X-Fscp-Std-Info": json.dumps({"client_id": "40108"}),
+                    "X-Fscp-Trace-Id": str(uuid.uuid4()),
+                    "Cookie": cookie_str,
+                },
+            )
+
+            def _fetch():
+                with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
+                    return r.read()
+
+            try:
+                raw = await asyncio.to_thread(_fetch)
+                obj = json.loads(raw.decode("utf-8", "replace"))
+            except urllib.error.HTTPError as e:
+                logger.error(f"[猎聘] API HTTP {e.code} for '{keyword}': {e.reason}")
+                _notify_cookie_expired()
+                return jobs
+            except Exception as e:
+                logger.error(f"[猎聘] API error for '{keyword}': {e}")
+                _notify_cookie_expired()
+                return jobs
+
+            if obj.get("flag") != 1:
+                code = obj.get("flag")
+                msg = obj.get("msg", "")
+                logger.warning(f"[猎聘] API flag={code} msg={msg} for '{keyword}'")
+                _notify_cookie_expired()
+                return jobs
+
+            job_list = obj.get("data", {}).get("data", {}).get("jobCardList", [])
+            if not job_list:
+                logger.info(f"[猎聘] No jobs found for '{keyword}' (page {current_page + 1})")
                 break
 
-        req = urllib.request.Request(
-            SEARCH_API,
-            data=body,
-            method="POST",
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/125.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-                "Content-Type": "application/json;charset=UTF-8",
-                "Origin": BASE_URL,
-                "Referer": f"{BASE_URL}/",
-                "X-Client-Type": "web",
-                "X-Requested-With": "XMLHttpRequest",
-                "X-XSRF-TOKEN": xsrf_token,
-                "X-Fscp-Version": "1.1",
-                "X-Fscp-Std-Info": json.dumps({"client_id": "40108"}),
-                "X-Fscp-Trace-Id": str(uuid.uuid4()),
-                "Cookie": cookie_str,
-            },
-        )
+            for card in job_list:
+                try:
+                    jobs.append(self._api_item_to_job(card))
+                except Exception as e:
+                    logger.debug(f"[猎聘] Skip card: {e}")
+                    continue
 
-        def _fetch():
-            with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
-                return r.read()
+            logger.info(f"[猎聘] '{keyword}' page {current_page + 1}: {len(job_list)} jobs")
+            # Wait before the NEXT page only.
+            if current_page < self.max_pages - 1:
+                await asyncio.sleep(rate_limit_seconds or self._rate_limit_seconds)
 
-        try:
-            raw = await asyncio.to_thread(_fetch)
-            obj = json.loads(raw.decode("utf-8", "replace"))
-        except urllib.error.HTTPError as e:
-            logger.error(f"[猎聘] API HTTP {e.code} for '{keyword}': {e.reason}")
-            _notify_cookie_expired()
-            return []
-        except Exception as e:
-            logger.error(f"[猎聘] API error for '{keyword}': {e}")
-            _notify_cookie_expired()
-            return []
-
-        if obj.get("flag") != 1:
-            code = obj.get("flag")
-            msg = obj.get("msg", "")
-            logger.warning(f"[猎聘] API flag={code} msg={msg} for '{keyword}'")
-            _notify_cookie_expired()
-            return []
-
-        job_list = obj.get("data", {}).get("data", {}).get("jobCardList", [])
-        if not job_list:
-            logger.info(f"[猎聘] No jobs found for '{keyword}'")
-            return []
-
-        jobs = []
-        for card in job_list:
-            try:
-                jobs.append(self._api_item_to_job(card))
-            except Exception as e:
-                logger.debug(f"[猎聘] Skip card: {e}")
-                continue
-
-        logger.info(f"[猎聘] '{keyword}': {len(jobs)} jobs")
         return jobs
 
     def _api_item_to_job(self, card):
@@ -275,23 +282,15 @@ class LiepinAdapter(PlatformAdapter):
         # Store jobId as security_id for on-demand JD fetching (Liepin uses jobId)
         j.security_id = job_id
         j.lid = url  # Use URL as lid for reference
+        j.education = job.get("requireEduLevel", "") or ""
         return j
 
-    def normalize(self, raw):
-        return Job(
-            id=raw.get("id", ""),
-            title=raw.get("title", ""),
-            company=raw.get("company", ""),
-            location=raw.get("location", ""),
-            salary_min=raw.get("salary_min"),
-            salary_max=raw.get("salary_max"),
-            description=raw.get("description", ""),
-            platforms=[self.name],
-            urls={self.name: raw.get("url", "")},
-        )
-
     async def fetch_full_jd(self, job, cookie_path) -> str:
-        """Fetch full JD for a Liepin job by scraping the job detail page.
+        """Fetch full JD for a Liepin job.
+
+        Uses Playwright to render the detail page (handles /a/ path pages
+        that are JS-rendered and unreadable via static HTTP). Falls back to
+        the legacy urllib+regex path only if Playwright is unavailable.
 
         Args:
             job: Job object with lid field containing the job URL
@@ -304,6 +303,28 @@ class LiepinAdapter(PlatformAdapter):
             logger.debug(f"[猎聘] Invalid or missing job URL for job {job.id}")
             return ""
 
+        # Preferred path: Playwright render (handles /a/ and /job/ pages alike)
+        try:
+            from agent_core.platforms.playwright_jd import fetch_jd_playwright
+
+            jd = await fetch_jd_playwright(
+                url=job.lid,
+                platform="liepin",
+                cookie_path=cookie_path,
+                headless=False,
+            )
+            if jd:
+                return jd
+            logger.warning(f"[猎聘] Playwright returned empty JD for {job.lid}")
+            return ""
+        except RuntimeError as e:
+            # playwright not installed — fall through to legacy urllib path
+            logger.warning(f"[猎聘] Playwright unavailable ({e}); falling back to urllib")
+        except Exception as e:
+            logger.warning(f"[猎聘] Playwright fetch failed for {job.lid}: {e}")
+            return ""
+
+        # Legacy fallback: static HTTP + regex (only works on /job/ pages)
         cookies = _load_cookies(cookie_path)
         cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
 
@@ -330,27 +351,20 @@ class LiepinAdapter(PlatformAdapter):
         try:
             raw = await asyncio.to_thread(_fetch)
             html = raw.decode("utf-8", "replace")
-            # Try to extract JD from HTML - look for common JD sections
-            import re
-
-            # Strategy 1: Look for "岗位职责" or "任职要求" sections
             for keyword in ["岗位职责", "任职要求", "职位描述", "岗位要求"]:
                 pattern = rf"{keyword}[：:：]([^<]+)(?:<|$)"
                 match = re.search(pattern, html)
                 if match:
                     return match.group(1).strip()[:5000]
-            # Strategy 2: Find the largest text block in the main content area
-            # Look for content between common job detail markers
             for marker in ["job-detail-content", "job-description", "content-text"]:
                 start = html.find(f"<{marker}")
                 if start > 0:
                     end = html.find(f"</{marker}>", start)
                     if end > start:
                         content = html[start:end]
-                        # Remove HTML tags
                         text = re.sub(r"<[^>]+>", "", content)
-                        text = " ".join(text.split())  # Normalize whitespace
-                        if len(text) > 100:  # Only return if substantial
+                        text = " ".join(text.split())
+                        if len(text) > 100:
                             return text[:5000]
             logger.warning(f"[猎聘] Could not extract JD from {job.lid}")
             return ""
@@ -375,12 +389,5 @@ async def liepin_login(cookie_path="data/cookies/liepin.json", timeout_s=180):
 
 
 def _parse_salary(text):
-    """Parse '15-20k·13薪' into (15000, 20000), '薪资面议' into (None, None)."""
-    if not text or ("k" not in text.lower() and "K" not in text):
-        return None, None
-    nums = re.findall(r"(\d+(?:\.\d+)?)", text)
-    if len(nums) >= 2:
-        return int(float(nums[0]) * 1000), int(float(nums[1]) * 1000)
-    if len(nums) == 1:
-        return int(float(nums[0]) * 1000), None
-    return None, None
+    """Parse Liepin salary strings via the shared cross-platform parser."""
+    return parse_salary_text(text)

@@ -1,86 +1,137 @@
 platforms:
   boss_zhipin:
     enabled: true
-    cookie_path: "data/cookies/boss.json"
+    cookie_path: data/cookies/boss_zhipin.json
     rate_limit_seconds: 30
+    search_max_pages: 1
   liepin:
     enabled: true
-    cookie_path: "data/cookies/liepin.json"
+    cookie_path: data/cookies/liepin.json
     rate_limit_seconds: 30
+    search_max_pages: 1
   job51:
     enabled: false
   zhilian:
     enabled: true
+    browser_profile_dir: data/zhilian_browser_profile
+    search_max_pages: 1
   maimai:
     enabled: false
   tencent:
-    enabled: false
-    login_method: "none"
+    enabled: true
+    login_method: none
     rate_limit_seconds: 1
+    search_max_pages: 2
   netease:
-    enabled: false
-    login_method: "none"
+    enabled: true
+    login_method: none
     rate_limit_seconds: 1
+    search_max_pages: 2
   byd:
     enabled: true
-    login_method: "none"
+    login_method: none
     rate_limit_seconds: 1
+    search_max_pages: 2
   naura:
     enabled: true
-    login_method: "none"
+    login_method: none
     rate_limit_seconds: 1
-
+    search_max_pages: 2
+  yofc:
+    enabled: true
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
 search:
   directions:
-    industrial_ai_agent:
-      keywords: ["工业AI Agent", "智能产线", "Agent 架构", "工业大模型", "智能制造AI"]
-      resume_file: "resumes/industrial_ai_agent.txt"
-      feature_words: ["Agent", "LLM", "RAG", "Memory", "Multi-Agent", "Skill", "Workflow", "Prompt", "大模型"]
-    equipment_amr:
-      keywords: ["AMR", "AGV", "自主移动机器人", "物流自动化", "智能搬运", "机器人调度"]
-      resume_file: "resumes/equipment_amr.txt"
-      feature_words: ["AMR", "AGV", "PLC", "SLAM", "MES", "WMS", "SCADA", "调度", "导航", "激光"]
-  location: "全国"
+    default:
+      resume_file: resumes/简历.txt
+      keywords: []
+  location: 全国
   min_salary: 6000
-  exclude_keywords: ["劳务派遣", "外包", "派遣", "外派"]
-
+  exclude_keywords:
+  - 劳务派遣
+  - 外包
+  - 派遣
+  - 外派
 company_aliases:
-  catl: ["宁德时代", "CATL", "宁德时代新能源科技股份有限公司"]
-  byd: ["比亚迪", "BYD", "比亚迪股份有限公司"]
-  huawei: ["华为", "Huawei", "华为技术有限公司"]
-  foxconn: ["富士康", "Foxconn", "鸿海", "富士康科技集团"]
-  haier: ["海尔", "Haier", "海尔集团", "海尔智家"]
-  sany: ["三一", "三一重工", "SANY"]
-  zoomlion: ["中联", "中联重科", "Zoomlion"]
-  tencent: ["腾讯", "Tencent", "腾讯科技", "深圳市腾讯计算机系统有限公司"]
-  netease: ["网易", "NetEase", "网易集团", "网易(杭州)网络有限公司"]
-  naura: ["北方华创", "NAURA", "北方华创科技集团股份有限公司", "北京北方华创微电子装备有限公司"]
-
+  catl:
+  - 宁德时代
+  - CATL
+  - 宁德时代新能源科技股份有限公司
+  byd:
+  - 比亚迪
+  - BYD
+  - 比亚迪股份有限公司
+  huawei:
+  - 华为
+  - Huawei
+  - 华为技术有限公司
+  foxconn:
+  - 富士康
+  - Foxconn
+  - 鸿海
+  - 富士康科技集团
+  haier:
+  - 海尔
+  - Haier
+  - 海尔集团
+  - 海尔智家
+  sany:
+  - 三一
+  - 三一重工
+  - SANY
+  zoomlion:
+  - 中联
+  - 中联重科
+  - Zoomlion
+  tencent:
+  - 腾讯
+  - Tencent
+  - 腾讯科技
+  - 深圳市腾讯计算机系统有限公司
+  netease:
+  - 网易
+  - NetEase
+  - 网易集团
+  - 网易(杭州)网络有限公司
+  naura:
+  - 北方华创
+  - NAURA
+  - 北方华创科技集团股份有限公司
+  - 北京北方华创微电子装备有限公司
+  yofc:
+  - 长飞光纤
+  - YOFC
+  - 长飞光纤光缆
+  - 长飞光纤光缆股份有限公司
+  - Yangtze Optical Fibre and Cable
 matching:
-  prescreen_top_n: 30
   match_min_score: 50
-
-prescreen_rules:
-  feature_weight: 25
-  keyword_weight: 15
-  salary_high_multiplier: 1.5
-  salary_high_bonus: 5
-
 llm:
-  provider: "deepseek"
-  model: "deepseek-v4-pro"
-  api_key_env: "DEEPSEEK_API_KEY"
-  base_url: "https://api.deepseek.com"
+  provider: deepseek
+  model: deepseek-v4-flash
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
   temperature: 0.7
-  max_tokens: 4096
-
+  max_tokens: 384000
+  thinking:
+    enabled: true
+    effort: high
 notify:
   windows_toast: true
-  notify_on_zero_results: true
-  interview_reminder_hours: 24
-
 schedule:
   enabled: true
   interval_hours: 6
-  directions: ["industrial_ai_agent", "equipment_amr"]
-  quiet_hours: [0, 7]
+  directions:
+  - default
+  quiet_hours:
+  - 0
+  - 7
+realtime:
+  enabled: true
+  ws_port: 8766
+  volc_endpoint: wss://openspeech.bytedance.com/api/v3/realtime/dialogue
+  model: 2.2.0.0
+  voice: saturn_zh_female_chengshujiejie_tob
+  resource_id: volc.speech.dialog

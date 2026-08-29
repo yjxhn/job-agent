@@ -22,6 +22,7 @@ class JobRecord:
     is_new: bool = True
     security_id: str = ""
     lid: str = ""
+    published_at: str = ""
 
     def to_db_row(self) -> dict:
         d = asdict(self)
@@ -33,6 +34,14 @@ class JobRecord:
     @classmethod
     def from_db_row(cls, row: dict) -> "JobRecord":
         row = dict(row)
+        # Tolerate extra columns added by later migrations (prescreen_score,
+        # prescreen_confidence, user_flag, ...). The dataclass only declares
+        # the fields it cares about; blindly passing the rest through to
+        # __init__ raises TypeError on the first new column. Drop anything
+        # the dataclass doesn't know about so a schema bump never breaks
+        # loading existing rows.
+        known = {f.name for f in __import__("dataclasses").fields(cls)}
+        row = {k: v for k, v in row.items() if k in known}
         row["platforms"] = json.loads(row.get("platforms", "[]"))
         row["urls"] = json.loads(row.get("urls", "{}"))
         row["is_new"] = bool(row.get("is_new", 1))
@@ -51,6 +60,7 @@ class ApplicationRecord:
 
 
 VALID_STATUSES = [
+    "待投递",
     "已投递",
     "HR已读",
     "约面",

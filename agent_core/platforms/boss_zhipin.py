@@ -6,18 +6,14 @@ import json
 import logging
 import re
 import time
+import urllib.request
 from pathlib import Path
 
-from agent_core.platforms.base import Job, PlatformAdapter
+from agent_core.platforms.base import PlatformAdapter, parse_salary_text
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.zhipin.com"
-SEARCH_URL = f"{BASE_URL}/web/geek/job"
-LOGIN_URL = f"{BASE_URL}/web/user/?ka=header-login"
-
-# Whether to fetch full JD details (default False to avoid anti-bot risk)
-FETCH_FULL_JD = False
 
 # Boss直聘 city codes (partial — extend as needed)
 CITY_CODES = {
@@ -52,17 +48,18 @@ def _load_cookies(cookie_path):
 
 
 def _session_cookie_valid(cookies):
-    """True if the Boss session cookie (wt2) is present and not expired.
+    """True if Boss session cookies (wt2 + __zp_stoken__) are present and valid.
 
     `expires` is a unix timestamp in seconds; <= 0 means a session cookie
     (no explicit expiry) — considered valid (the API will tell us if it's dead).
     """
     now = time.time()
+    found = {}
     for c in cookies:
-        if c.get("name") == "wt2":
+        if c.get("name") in ("wt2", "__zp_stoken__"):
             exp = c.get("expires", -1)
-            return exp <= 0 or exp > now
-    return False  # no wt2 at all
+            found[c["name"]] = exp <= 0 or exp > now
+    return all(found.get(k, False) for k in ("wt2", "__zp_stoken__"))
 
 
 def _notify_anti_bot(platform="Boss直聘"):
@@ -92,12 +89,13 @@ def _notify_cookie_expired(platform="Boss直聘"):
 class BossZhipinAdapter(PlatformAdapter):
     name = "boss_zhipin"
 
-    def __init__(self, rate_limit_seconds: int | None = None):
+    def __init__(self, rate_limit_seconds: int | None = None, max_pages: int | None = None):
         self._detail_fetch_count = 0
         self._rate_limit_seconds: float = (
             rate_limit_seconds if rate_limit_seconds is not None else 1.5
         )
-        self._ANTI_BOT_BACKOFF_SECONDS = rate_limit_seconds if rate_limit_seconds else 300
+        self.max_pages = max_pages if max_pages and max_pages > 0 else 1
+        self._ANTI_BOT_BACKOFF_SECONDS = 120  # code 37 = cookie flagged, moderate wait
 
     async def search(
         self,
@@ -107,22 +105,12 @@ class BossZhipinAdapter(PlatformAdapter):
         headless=False,
         rate_limit_seconds: int | None = None,
     ):
-        """Search Boss直聘 via direct HTTP API.
-
-        Boss detects CDP-controlled browsers (Playwright) and serves a blank
-        page, so we bypass the browser entirely and call the same JSON API the
-        web frontend uses, authenticated with the saved cookie.
-        `headless` is ignored (no browser).
-        """
-        # Use provided rate_limit_seconds or fall back to instance default
+        """Search Boss直聘 via HTTP API (CDP detection blocks Playwright)."""
         if rate_limit_seconds is not None:
             self._rate_limit_seconds = rate_limit_seconds
         cookies = _load_cookies(cookie_path)
         if not cookies:
-            logger.warning(
-                f"[Boss] No cookie at {cookie_path}; "
-                f"run `job-agent login --platform boss` or import_cookies.py first"
-            )
+            logger.warning(f"[Boss] No cookie at {cookie_path}")
             _notify_cookie_expired()
             return []
         if not _session_cookie_valid(cookies):
@@ -132,13 +120,20 @@ class BossZhipinAdapter(PlatformAdapter):
         city_code = CITY_CODES.get(location, "100010000")
 
         jobs = []
-        for keyword in keywords[:2]:
+        kw_list = keywords[:2]
+        for idx, keyword in enumerate(kw_list):
             jobs.extend(
                 await self._search_keyword_api(
-                    keyword, city_code, cookie_str, rate_limit_seconds=self._rate_limit_seconds
+                    keyword,
+                    city_code,
+                    cookie_str,
+                    max_pages=self.max_pages,
+                    rate_limit_seconds=self._rate_limit_seconds,
                 )
             )
-            await asyncio.sleep(2)  # inter-keyword rate limit
+            # Only wait between requests — never after the final request.
+            if idx < len(kw_list) - 1:
+                await asyncio.sleep(self._rate_limit_seconds)
         logger.info(f"[Boss] {len(jobs)} jobs total for keywords {keywords[:2]}")
         return jobs
 
@@ -223,7 +218,9 @@ class BossZhipinAdapter(PlatformAdapter):
             for j in job_list:
                 jobs.append(await self._api_item_to_job(j, cookie_str))
             logger.info(f"[Boss] '{keyword}' page {page}: {len(job_list)} jobs")
-            await asyncio.sleep(self._rate_limit_seconds)
+            # Wait before the NEXT page only; the final page has no tail sleep.
+            if page < max_pages and job_list:
+                await asyncio.sleep(self._rate_limit_seconds)
         return jobs
 
     async def _fetch_jd_detail(self, security_id, lid, cookie_str) -> str:
@@ -279,29 +276,169 @@ class BossZhipinAdapter(PlatformAdapter):
         return ""
 
     async def fetch_full_jd(self, job, cookie_path) -> str:
-        """Convenience method to fetch full JD for a single job.
+        """Fetch full JD for a Boss job.
+
+        Strategy (in order of preference):
+        1. HTML page fetch with cookies (fast, works for most pages)
+           → falls through to Playwright if result is < 100 chars
+        2. Playwright standalone browser (renders JS, cookie injection)
+        3. Playwright persistent profile (requires manual login)
+        4. wapi/card.json API fallback (rarely works due to anti-bot)
 
         Args:
-            job: Job object with security_id and lid fields
+            job: Job object with lid and security_id
             cookie_path: Path to Boss cookie JSON file
 
         Returns:
-            Full JD text (truncated to 5000 chars) or empty string on error
+            Full JD text (truncated to 5000 chars) or "" on error
         """
-        if not job.security_id or not job.lid:
-            logger.debug(f"[Boss] Missing security_id or lid for job {job.id}")
-            return ""
+        # Resolve real detail URL: prefer urls dict, fall back to lid
+        detail_url = ""
+        urls = getattr(job, "urls", {}) or {}
+        if isinstance(urls, dict):
+            detail_url = urls.get("boss_zhipin", "") or urls.get(self.name, "")
+        if not detail_url:
+            detail_url = getattr(job, "lid", "") or ""
+        security_id = getattr(job, "security_id", "") or ""
+
+        if not detail_url.startswith("http"):
+            # Last resort: lid might be a search reference ID, not a URL
+            lid = getattr(job, "lid", "") or ""
+            if lid.startswith("http"):
+                detail_url = lid
 
         cookies = _load_cookies(cookie_path)
-        if not cookies:
-            logger.warning(f"[Boss] No cookie at {cookie_path}")
-            return ""
-        if not _session_cookie_valid(cookies):
-            logger.warning(f"[Boss] Cookie expired or invalid at {cookie_path}")
+        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies) if cookies else ""
+
+        _JD_MARKERS = ("岗位职责", "任职要求", "职位描述", "工作内容", "工作职责")
+
+        # Method 1: HTML page fetch with cookies (fast path)
+        if detail_url.startswith("http") and cookie_str:
+            jd = await self._fetch_jd_from_html(detail_url, cookie_str)
+            if jd:
+                logger.info(f"[Boss] HTML fetch: {len(jd)} chars from {detail_url[:60]}")
+                if any(kw in jd for kw in _JD_MARKERS):
+                    return jd
+                # HTML returned something but no real JD content —
+                # page is likely JS-rendered, try Playwright
+                logger.debug("[Boss] HTML result has no JD markers, trying Playwright")
+
+        # Method 2: Playwright standalone browser (copes with JS rendering)
+        if detail_url.startswith("http") and cookie_path:
+            try:
+                from agent_core.platforms.playwright_jd import fetch_jd_playwright
+
+                jd = await fetch_jd_playwright(
+                    url=detail_url,
+                    platform="boss_zhipin",
+                    cookie_path=cookie_path,
+                    headless=False,
+                )
+                if jd and any(kw in jd for kw in _JD_MARKERS):
+                    logger.info(f"[Boss] Playwright fetch: {len(jd)} chars")
+                    return jd
+            except RuntimeError as e:
+                logger.warning(f"[Boss] Playwright unavailable ({e})")
+            except Exception as e:
+                logger.warning(f"[Boss] Playwright fetch failed: {e}")
+
+        # Method 3: Playwright persistent profile (requires manual login)
+        if detail_url.startswith("http"):
+            try:
+                from agent_core.platforms.boss_browser import fetch_jd as _boss_fetch_jd
+
+                jd = await _boss_fetch_jd(detail_url, headless=False)
+                if jd:
+                    return jd
+                logger.warning(f"[Boss] persistent-browser JD empty for {detail_url}")
+            except RuntimeError as e:
+                logger.warning(f"[Boss] persistent browser unavailable ({e})")
+            except Exception as e:
+                logger.warning(f"[Boss] persistent browser fetch failed for {detail_url}: {e}")
+
+        # Method 4: wapi job-card endpoint (legacy, rarely works)
+        if security_id and cookie_str:
+            lid = getattr(job, "lid", "") or ""
+            jd = await self._fetch_jd_detail(security_id, lid, cookie_str)
+            if jd:
+                return jd
+        return ""
+
+    async def _fetch_jd_from_html(self, url: str, cookie_str: str) -> str:
+        """Fetch JD from job detail HTML page using cookies.
+
+        This method directly requests the HTML page (not the JSON API) and
+        extracts the job description from the rendered HTML. Works reliably
+        as of 2026-07-09 (tested and confirmed working with valid cookies).
+        """
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/125.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+                "Referer": "https://www.zhipin.com/",
+                "Cookie": cookie_str,
+            },
+        )
+
+        def _fetch():
+            with urllib.request.urlopen(req, timeout=20) as r:  # nosec B310
+                return r.read().decode("utf-8", "replace")
+
+        try:
+            html = await asyncio.to_thread(_fetch)
+
+            # Check if we got the actual job page (not security challenge)
+            if "passport/zp/security" in html:
+                logger.warning("[Boss] HTML fetch redirected to security page")
+                return ""
+
+            if len(html) < 5000:
+                logger.warning(f"[Boss] HTML too short ({len(html)} bytes), likely error page")
+                return ""
+
+            # Extract JD from job-sec div (main job description container)
+            # Pattern matches: <div class="job-sec">...</div>
+            jd_match = re.search(
+                r'<div[^>]*class="[^"]*job-sec[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL
+            )
+
+            if jd_match:
+                # Remove HTML tags and clean up whitespace
+                jd_html = jd_match.group(1)
+                jd_text = re.sub(r"<[^>]+>", " ", jd_html)
+                jd_text = " ".join(jd_text.split())
+                jd_text = jd_text.strip()
+
+                if len(jd_text) > 10:
+                    return jd_text[:5000]
+
+            # Fallback: try to find JD-related sections in body text
+            if any(kw in html for kw in ("岗位职责", "任职要求", "职位描述")):
+                # Extract text around job-related keywords
+                body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL)
+                if body_match:
+                    body_text = re.sub(r"<[^>]+>", " ", body_match.group(1))
+                    body_text = " ".join(body_text.split())
+
+                    # Try to slice from "岗位职责" or "任职要求"
+                    for marker in ["岗位职责", "职位描述", "任职要求"]:
+                        idx = body_text.find(marker)
+                        if idx >= 0:
+                            snippet = body_text[idx : idx + 3000]
+                            return snippet.strip()[:5000]
+
+            logger.warning("[Boss] Could not extract JD from HTML")
             return ""
 
-        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
-        return await self._fetch_jd_detail(job.security_id, job.lid, cookie_str)
+        except Exception as e:
+            logger.warning(f"[Boss] HTML fetch error: {e}")
+            return ""
 
     async def _api_item_to_job(self, j, cookie_str=""):
         """Map one Boss API job item to a Job."""
@@ -351,23 +488,11 @@ class BossZhipinAdapter(PlatformAdapter):
         # Store security_id and lid for on-demand JD fetching
         job.security_id = j.get("securityId", "")
         job.lid = j.get("lid", "")
+        job.education = j.get("jobDegree", "") or ""
         return job
 
-    def normalize(self, raw):
-        return Job(
-            id=raw.get("id", ""),
-            title=raw.get("title", ""),
-            company=raw.get("company", ""),
-            location=raw.get("location", ""),
-            salary_min=raw.get("salary_min"),
-            salary_max=raw.get("salary_max"),
-            description=raw.get("description", ""),
-            platforms=[self.name],
-            urls={self.name: raw.get("url", "")},
-        )
 
-
-async def boss_login(cookie_path="data/cookies/boss.json", timeout_s=180):
+async def boss_login(cookie_path="data/cookies/boss_zhipin.json", timeout_s=180):
     """Boss直聘 detects the CDP protocol, so Playwright auto-login is impossible
     (the browser is redirected to a blank page). This function guides the user
     through the manual cookie-export flow instead. Always returns False
@@ -379,17 +504,10 @@ async def boss_login(cookie_path="data/cookies/boss.json", timeout_s=180):
     print("  1. 在日常 Chrome 登录 https://www.zhipin.com")
     print("  2. 用 Cookie-Editor 扩展导出 zhipin.com 的全部 cookie 为 JSON（含 wt2）")
     print(f"  3. 保存为 {export_path}")
-    print("  4. 运行: job-agent import-cookies <export.json> boss --domain zhipin.com")
+    print("  4. 运行: job-agent import-cookies <export.json> boss_zhipin")
     return False
 
 
 def _parse_salary(text):
-    """Parse '8-13K', '8K-12K', '15K' into (min, max) integers."""
-    if not text or ("K" not in text and "k" not in text):
-        return None, None
-    nums = re.findall(r"(\d+(?:\.\d+)?)", text)
-    if len(nums) >= 2:
-        return int(float(nums[0]) * 1000), int(float(nums[1]) * 1000)
-    if len(nums) == 1:
-        return int(float(nums[0]) * 1000), None
-    return None, None
+    """Parse Boss salary strings via the shared cross-platform parser."""
+    return parse_salary_text(text)

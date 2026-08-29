@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 logger = logging.getLogger(__name__)
 
 STATUS_FLOW = {
+    "待投递": ["已投递", "已终止"],
     "已投递": ["HR已读", "约面", "已终止"],
     "HR已读": ["约面", "已终止"],
     "约面": ["一面", "已终止"],
@@ -20,10 +21,10 @@ STATUS_FLOW = {
 
 def add_application(db, job_id, resume_version="", notes="") -> int:
     """Record a new job application. Creates minimal job entry if not in DB. Skips duplicate."""
-    # Check for existing application for same job (avoid duplicates)
-    dup = db.execute(
-        "SELECT id FROM applications WHERE job_id=? AND status='已投递'", (job_id,)
-    ).fetchone()
+    # Check for existing application for same job (avoid duplicates). No status
+    # filter: once a job is tracked, re-adding returns the existing row instead
+    # of creating a duplicate (the UNIQUE index on job_id backs this up too).
+    dup = db.execute("SELECT id FROM applications WHERE job_id=?", (job_id,)).fetchone()
     if dup:
         logger.warning(f"[Track] Job {job_id[:8]} already tracked as #{dup['id']} — skipping")
         return dup["id"]
@@ -33,8 +34,7 @@ def add_application(db, job_id, resume_version="", notes="") -> int:
     if not existing:
         now = _now()
         db.execute(
-            "INSERT OR IGNORE INTO jobs (id,title,company,first_seen,last_seen) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT OR IGNORE INTO jobs (id,title,company,first_seen,last_seen) VALUES (?,?,?,?,?)",
             (job_id, f"外部投递-{job_id[:8]}", "未知公司", now, now),
         )
         db.commit()
@@ -61,12 +61,20 @@ def update_status(db, app_id, new_status) -> dict:
     if new_status not in allowed:
         raise ValueError(f"Invalid: {current} -> {new_status}. Allowed: {allowed}")
     now = _now()
-    db.execute(
-        "UPDATE applications SET status=?, updated_at=? WHERE id=?",
-        (new_status, now, app_id),
-    )
-    db.commit()
-    _add_timeline(db, app_id, current, new_status, now)
+    try:
+        db.execute(
+            "UPDATE applications SET status=?, updated_at=? WHERE id=?",
+            (new_status, now, app_id),
+        )
+        db.execute(
+            "INSERT INTO timelines (application_id,from_status,to_status,created_at) "
+            "VALUES (?,?,?,?)",
+            (app_id, current, new_status, now),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     logger.info(f"[Track] #{app_id}: {current} -> {new_status}")
     return get_application(db, app_id)
 
@@ -96,13 +104,16 @@ def _enrich(app, db):
             "SELECT title,company,location,urls FROM jobs WHERE id=?", (app["job_id"],)
         ).fetchone()
         if job:
+            # sqlite3.Row has no .get(); index with a fallback so a missing
+            # urls column (older schema) doesn't break enrichment.
+            job = dict(job)
             app["job_title"] = job["title"]
             app["job_company"] = job["company"]
             app["job_location"] = job["location"]
-            app["job_urls"] = json.loads(job.get("urls", "{}"))
+            app["job_urls"] = json.loads(job.get("urls") or "{}")
     except Exception as e:
         # F5: was `except: pass` — surface enrichment failures
-        logger.warning(f"[Track] _enrich failed for app {app.get('id','?')}: {e}")
+        logger.warning(f"[Track] _enrich failed for app {app.get('id', '?')}: {e}")
     return app
 
 

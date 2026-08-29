@@ -102,7 +102,7 @@ def test_serve_api_query_logic(tmp_path):
 def test_serve_html_structure():
     """Test that the HTML template contains expected elements."""
     assert "<!DOCTYPE html>" in serve.HTML
-    assert "求职Agent Dashboard" in serve.HTML
+    assert "JobAgent" in serve.HTML  # HTML title/h1 is "JobAgent"
     assert "/api/results" in serve.HTML
     assert "sort(" in serve.HTML  # JavaScript sort function
 

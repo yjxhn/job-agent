@@ -21,6 +21,13 @@ async def enrich_job_jd(job: Job, config) -> Job:
     Returns:
         Job object with potentially enriched description (same object reference)
     """
+    # Universal short-circuit: if the description already contains real JD
+    # content (from search API or a prior fetch), don't waste requests.
+    desc = job.description or ""
+    if any(kw in desc for kw in ("岗位职责", "任职要求", "职位描述", "工作内容", "工作职责")):
+        logger.debug(f"[Enrich] Job {job.id[:8]} already has JD, skipping")
+        return job
+
     if not job.security_id and not job.lid:
         logger.debug(f"[Enrich] No security_id/lid for job {job.id}, skipping enrichment")
         return job
@@ -42,18 +49,15 @@ async def enrich_job_jd(job: Job, config) -> Job:
         return job
 
     try:
-        # Import the adapter dynamically
-        if platform == "boss_zhipin":
-            from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+        from agent_core.platforms.registry import create_adapter, is_registered
 
-            adapter = BossZhipinAdapter()
-        elif platform == "liepin":
-            from agent_core.platforms.liepin import LiepinAdapter
-
-            adapter = LiepinAdapter()  # type: ignore[assignment]
-        else:
+        if not is_registered(platform):
             logger.warning(f"[Enrich] No fetch_full_jd implementation for platform {platform}")
             return job
+        # fetch_full_jd only needs the adapter's default profile/cookie wiring;
+        # passing platform_config would force constructor kwargs that some
+        # tests/legacy paths stub away.
+        adapter = create_adapter(platform)
 
         # Fetch full JD
         full_jd = await adapter.fetch_full_jd(job, platform_config.cookie_path)

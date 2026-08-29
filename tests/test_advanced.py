@@ -21,6 +21,28 @@ def cfg():
     return load_config("config.yaml")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_db(monkeypatch):
+    """Never write to the real data/agent.db from tests.
+
+    run_pipeline() internally calls orchestrator._save_jobs_to_db /
+    _save_pipeline_run / _save_match_to_db with the default db_path
+    ("data/agent.db") — real production data. Before this fixture existed,
+    tests like test_run_pipeline_end_to_end injected fake jobs (id=1/2/3,
+    http://x placeholder URLs) into the production DB, which then showed up
+    in the dashboard as phantom jobs with bogus match results.
+
+    These pipeline tests assert on the returned data flow, not on DB side
+    effects (serve.py handlers cover the real save path), so no-op stubs are
+    the right isolation — the tests stay deterministic and DB-free.
+    """
+    from agent_core.pipeline import orchestrator
+
+    monkeypatch.setattr(orchestrator, "_save_jobs_to_db", lambda *a, **k: None)
+    monkeypatch.setattr(orchestrator, "_save_match_to_db", lambda *a, **k: None)
+    monkeypatch.setattr(orchestrator, "_save_pipeline_run", lambda *a, **k: None)
+
+
 @pytest.fixture
 def db(tmp_path):
     from agent_core.storage.db import get_db, migrate
@@ -69,6 +91,18 @@ class FakeProvider:
             raise r
         return r
 
+    async def chat_with_reasoning(
+        self, messages, temperature=0.7, max_tokens=4096, response_format=None
+    ):
+        """match_jobs uses chat_with_reasoning; delegate to chat (no reasoning)."""
+        content = await self.chat(
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
+        return content, ""
+
 
 # ---------- cover_letter ----------
 
@@ -113,6 +147,40 @@ def test_offer_eval_parses_json(cfg):
     assert r["pros"] == ["a"]
 
 
+def test_offer_compare_with_eval(cfg):
+    from agent_core.pipeline.offer_eval import compare
+
+    provider = FakeProvider(["## 推荐结论\n选 A"])
+    offers = [
+        {
+            "company": "A公司",
+            "title": "工程师",
+            "result": {"overall_score": 8, "pros": ["稳定"], "cons": ["远"]},
+            "parsed": {"location": "北京", "monthly_base": "15K"},
+            "raw_text": "offer 原文",
+        }
+    ]
+    r = asyncio.run(compare(cfg, provider, offers))
+    assert "推荐" in r
+
+
+def test_offer_compare_without_eval(cfg):
+    from agent_core.pipeline.offer_eval import compare
+
+    provider = FakeProvider(["## 推荐结论\n选 B"])
+    offers = [
+        {
+            "company": "B公司",
+            "title": "工程师",
+            "result": {},
+            "parsed": {"location": "上海", "monthly_base": "20K"},
+            "raw_text": "offer 原文",
+        }
+    ]
+    r = asyncio.run(compare(cfg, provider, offers))
+    assert "推荐" in r
+
+
 # ---------- salary_advice ----------
 
 
@@ -131,45 +199,71 @@ def test_salary_advice_parses_json(cfg):
 # ---------- interview_prep ----------
 
 
-def test_interview_prep_predict_questions(cfg):
+def test_interview_prep_predict_questions(cfg, tmp_path):
     from agent_core.pipeline.interview_prep import predict_questions, save_interview_prep
 
     resp = (
-        '{"technical":[{"q":"AMR调度算法?","a":["A*","Dijkstra"]}],'
-        '"behavioral":[{"q":"团队冲突?","a":["沟通"]}],'
-        '"project":[{"q":"项目难点?","a":["SLAM"]}]}'
+        '{"rounds":[{"round":"一面","focus":"技术深挖","questions":[{"q":"AMR调度算法?","a":["A*","Dijkstra"]}]}],'
+        '"project_deep_dive":[{"project":"SLAM导航","q":"项目难点?","a":["SLAM"]}],'
+        '"reverse_questions":["团队结构如何?"],'
+        '"salary_negotiation":{"anchor":"25-35K","tips":["先听对方报价"]}}'
     )
     provider = FakeProvider([resp])
     qs = asyncio.run(predict_questions(_job(), cfg, provider))
-    assert len(qs["technical"]) == 1
-    assert qs["technical"][0]["q"] == "AMR调度算法?"
-    path = save_interview_prep(qs, _job(), output_dir="output")
+    assert len(qs["rounds"]) == 1
+    assert qs["rounds"][0]["questions"][0]["q"] == "AMR调度算法?"
+    assert qs["project_deep_dive"][0]["project"] == "SLAM导航"
+    path = save_interview_prep(qs, _job(), output_dir=str(tmp_path))
     assert path.endswith("_interview.md")
+    assert tmp_path.joinpath(path).exists() or Path(path).exists()
 
 
 # ---------- tailor ----------
 
 
-def test_tailor_resume_generates_markdown(cfg):
+def test_tailor_resume_generates_markdown(cfg, tmp_path):
     from agent_core.pipeline.tailor import save_resume, tailor_resume
 
-    provider = FakeProvider(["## 教育背景\n\n某大学\n\n## 核心能力\n\n- AMR调度\n"])
+    provider = FakeProvider(
+        [
+            "## 教育背景\n\n某大学\n\n## 核心能力\n\n- AMR调度\n\n"
+            "## 工作经历/项目经历\n\n- 项目A\n\n## 技能\n\n- PLC\n\n## 自我评价\n\n积极\n"
+        ]
+    )
     text = asyncio.run(tailor_resume(_job(), cfg, provider))
     assert "教育背景" in text
-    # save_resume needs python-docx; use tmp output dir
-    paths = save_resume(text, _job(), output_dir="output")
+    # save_resume needs python-docx; use an isolated tmp output dir
+    paths = save_resume(text, _job(), output_dir=str(tmp_path))
     assert paths["md"].endswith(".md")
     assert paths["docx"].endswith(".docx")
+
+
+def test_tailor_resume_retries_when_first_pass_truncated(cfg):
+    """tailor_resume should retry once with the same provider when sections are missing."""
+    from agent_core.pipeline.tailor import tailor_resume
+
+    truncated = (
+        "## 教育背景\n\n某大学\n\n## 核心能力\n\n- AMR调度\n\n" "## 工作经历/项目经历\n\n- 项目A\n"
+    )
+    complete = truncated + "\n## 技能\n\n- PLC\n\n## 自我评价\n\n积极\n"
+    provider = FakeProvider([truncated, complete])
+    text = asyncio.run(tailor_resume(_job(), cfg, provider))
+    assert "## 技能" in text
+    assert "## 自我评价" in text
+    assert provider.calls == 2
 
 
 # ---------- orchestrator integration ----------
 
 
 def test_run_pipeline_end_to_end(cfg, monkeypatch):
+    cfg.matching.match_flagged_only = False
     from agent_core.notify import windows_toast as wt
     from agent_core.pipeline import orchestrator, search
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return [_job(id="1"), _job(id="2", title="外包 AMR")]  # 2nd filtered out
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
@@ -181,13 +275,14 @@ def test_run_pipeline_end_to_end(cfg, monkeypatch):
         ]
     )
     data = asyncio.run(
-        orchestrator.run_pipeline(cfg, provider, stages=["search", "filter", "prescreen", "match"])
+        orchestrator.run_pipeline(
+            cfg, provider, stages=["search", "filter", "match"], interactive=False
+        )
     )
 
     assert len(data["jobs"]) == 2
     assert len(data["filtered"]) == 1  # "外包" excluded
-    assert len(data["prescreened"]) == 1
-    assert len(data["matched"]) == 1
+    assert len(data.get("matched", [])) == 1
     assert data["matched"][0]["score"] == 80
     assert data["skipped"] == 0
 
@@ -196,14 +291,18 @@ def test_run_pipeline_partial_stages(cfg, monkeypatch):
     from agent_core.notify import windows_toast as wt
     from agent_core.pipeline import orchestrator, search
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return [_job(id="1")]
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
     monkeypatch.setattr(wt, "notify_search_complete", lambda *a, **k: None)
 
     data = asyncio.run(
-        orchestrator.run_pipeline(cfg, FakeProvider([]), stages=["search", "filter"])
+        orchestrator.run_pipeline(
+            cfg, FakeProvider([]), stages=["search", "filter"], interactive=False
+        )
     )
     assert len(data["jobs"]) == 1
     assert data["matched"] == []  # match stage not run
@@ -241,8 +340,43 @@ def test_run_scheduled_search_runs_and_updates_state(cfg, db, monkeypatch, tmp_p
     assert s["runs"] == 1
     assert s["last_run"] is not None
     assert s["last_error"] is None
+    # search_status rows are written by the REAL run_pipeline search stage;
+    # the fake run_pipeline here bypasses that path by design.
     rows = db.execute("SELECT * FROM search_status").fetchall()
-    assert len(rows) >= 1
+    assert rows == []
+
+
+def test_save_search_statuses_writes_per_platform(tmp_path):
+    """Search status rows record each platform separately."""
+    from agent_core.pipeline import orchestrator
+    from agent_core.storage.db import get_db, migrate
+
+    db_path = str(tmp_path / "status.db")
+    conn = get_db(db_path)
+    migrate(conn)
+    conn.close()
+
+    statuses = [
+        {"platform": "boss_zhipin", "direction": "d", "status": "success", "result_count": 3},
+        {
+            "platform": "liepin",
+            "direction": "d",
+            "status": "error",
+            "result_count": 0,
+            "error_message": "boom",
+        },
+    ]
+    orchestrator._save_search_statuses(statuses, db_path=db_path, search_id="s1")
+
+    conn = get_db(db_path)
+    rows = conn.execute(
+        "SELECT platform, status, result_count FROM search_status ORDER BY platform"
+    ).fetchall()
+    conn.close()
+    assert [(r[0], r[1], r[2]) for r in rows] == [
+        ("boss_zhipin", "success", 3),
+        ("liepin", "error", 0),
+    ]
 
 
 def test_run_scheduled_search_skips_when_disabled(cfg, db, monkeypatch, tmp_path):
@@ -440,8 +574,6 @@ def test_cookie_utils_convert_and_save_rejects_non_array(tmp_path):
         convert_and_save(str(exp), "boss_zhipin")
 
 
-# ---------- F10: prescreen confidence penalty ----------
-
 # ---------- Task 1: enrichment pipeline integration ----------
 
 
@@ -455,7 +587,9 @@ def test_pipeline_enrich_disabled_by_default(cfg, monkeypatch):
     # cfg.matching.enrich_in_pipeline defaults to False
     assert cfg.matching.enrich_in_pipeline is False
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return [_job(id="1")]
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
@@ -466,9 +600,11 @@ def test_pipeline_enrich_disabled_by_default(cfg, monkeypatch):
         enrich_called.append(job.id)
         return job
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", fake_enrich)
 
-    data = asyncio.run(orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL))
+    data = asyncio.run(
+        orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL, interactive=False)
+    )
     assert enrich_called == []
     assert "enriched" not in data or data.get("enriched", 0) == 0
 
@@ -482,6 +618,7 @@ def test_pipeline_enrich_enabled_calls_enrich(cfg, monkeypatch):
     monkeypatch.setattr(wt, "notify_search_complete", lambda *a, **k: None)
     cfg.matching.enrich_in_pipeline = True
     cfg.matching.enrich_top_n = 2
+    cfg.matching.match_flagged_only = False
 
     jobs = [
         _job(id="1", salary_max=15000),
@@ -489,7 +626,9 @@ def test_pipeline_enrich_enabled_calls_enrich(cfg, monkeypatch):
         _job(id="3", salary_max=10000),
     ]
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return list(jobs)
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
@@ -500,9 +639,11 @@ def test_pipeline_enrich_enabled_calls_enrich(cfg, monkeypatch):
         enrich_called.append(job.id)
         return job
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", fake_enrich)
 
-    data = asyncio.run(orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL))
+    data = asyncio.run(
+        orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL, interactive=False)
+    )
     # Top 2 by salary_max: job 2 (20000) then job 1 (15000)
     assert len(enrich_called) == 2
     assert enrich_called[0] == "2"
@@ -519,8 +660,11 @@ def test_pipeline_enrich_survives_exceptions(cfg, monkeypatch):
     monkeypatch.setattr(wt, "notify_search_complete", lambda *a, **k: None)
     cfg.matching.enrich_in_pipeline = True
     cfg.matching.enrich_top_n = 3
+    cfg.matching.match_flagged_only = False
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return [_job(id="1"), _job(id="2"), _job(id="3")]
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
@@ -531,12 +675,14 @@ def test_pipeline_enrich_survives_exceptions(cfg, monkeypatch):
         job.description = f"enriched_{job.id}"
         return job
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", boom_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", boom_enrich)
 
-    data = asyncio.run(orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL))
+    data = asyncio.run(
+        orchestrator.run_pipeline(cfg, FakeProvider([]), stages=FULL, interactive=False)
+    )
     # 2 out of 3 enriched (one errored); pipeline still completed
     assert data["enriched"] == 2
-    assert len(data["prescreened"]) >= 1  # prescreen still ran
+    assert "matched" in data  # pipeline still ran (matched may be empty with mock provider)
 
 
 def test_pipeline_enrich_not_called_when_stage_not_in_set(cfg, monkeypatch):
@@ -547,7 +693,9 @@ def test_pipeline_enrich_not_called_when_stage_not_in_set(cfg, monkeypatch):
     monkeypatch.setattr(wt, "notify_search_complete", lambda *a, **k: None)
     cfg.matching.enrich_in_pipeline = True
 
-    async def fake_search_all(config, platform_names=None, directions=None, headless=False):
+    async def fake_search_all(
+        config, platform_names=None, directions=None, keywords=None, headless=False, **kw
+    ):
         return [_job(id="1")]
 
     monkeypatch.setattr(search, "search_all", fake_search_all)
@@ -558,9 +706,13 @@ def test_pipeline_enrich_not_called_when_stage_not_in_set(cfg, monkeypatch):
         enrich_called.append(job.id)
         return job
 
-    monkeypatch.setattr("agent_core.platforms.enrichment.enrich_job_jd", fake_enrich)
+    monkeypatch.setattr("agent_core.pipeline.enrichment.enrich_job_jd", fake_enrich)
 
-    asyncio.run(orchestrator.run_pipeline(cfg, FakeProvider([]), stages=["search", "filter"]))
+    asyncio.run(
+        orchestrator.run_pipeline(
+            cfg, FakeProvider([]), stages=["search", "filter"], interactive=False
+        )
+    )
     assert enrich_called == []
 
 
@@ -692,6 +844,112 @@ def test_dedup_cross_platform_same_company_fuzzy():
     assert len(merged) == 2  # different normalized names remain separate
 
 
+def test_dedup_merges_fuzzy_title_same_company():
+    """Titles with a small variation (same company) merge via fuzzy match."""
+    from agent_core.pipeline.search import _dedup
+
+    now = _now()
+    j1 = _job(
+        id="a",
+        title="AMR工程师",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        platforms=["boss_zhipin"],
+        urls={"boss_zhipin": "http://b"},
+        first_seen=now,
+        last_seen=now,
+    )
+    j2 = _job(
+        id="b",
+        title="AMR调度工程师",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        platforms=["liepin"],
+        urls={"liepin": "http://l"},
+        first_seen=now,
+        last_seen=now,
+    )
+    merged = _dedup([j1, j2], aliases={})
+    assert len(merged) == 1  # fuzzy merged
+    assert set(merged[0].platforms) == {"boss_zhipin", "liepin"}
+    assert set(merged[0].urls.keys()) == {"boss_zhipin", "liepin"}
+
+
+def test_dedup_keeps_distinct_titles_same_company():
+    """Roles that are genuinely different (same company) stay separate."""
+    from agent_core.pipeline.search import _dedup
+
+    now = _now()
+    j1 = _job(
+        id="a",
+        title="AMR工程师",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        first_seen=now,
+        last_seen=now,
+    )
+    j2 = _job(
+        id="b",
+        title="测试开发工程师",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        first_seen=now,
+        last_seen=now,
+    )
+    merged = _dedup([j1, j2], aliases={})
+    assert len(merged) == 2  # unrelated roles never merge
+
+
+def test_dedup_keeps_different_company_same_title():
+    """Different companies with identical titles stay separate."""
+    from agent_core.pipeline.search import _dedup
+
+    now = _now()
+    j1 = _job(
+        id="a",
+        title="AMR工程师",
+        company="A公司",
+        company_normalized="A公司",
+        first_seen=now,
+        last_seen=now,
+    )
+    j2 = _job(
+        id="b",
+        title="AMR工程师",
+        company="B公司",
+        company_normalized="B公司",
+        first_seen=now,
+        last_seen=now,
+    )
+    merged = _dedup([j1, j2], aliases={})
+    assert len(merged) == 2
+
+
+def test_dedup_merges_noise_word_variants():
+    """'AMR工程师（急招）' and 'AMR工程师' (same company) merge via noise words."""
+    from agent_core.pipeline.search import _dedup
+
+    now = _now()
+    j1 = _job(
+        id="a",
+        title="AMR工程师（急招）",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        first_seen=now,
+        last_seen=now,
+    )
+    j2 = _job(
+        id="b",
+        title="AMR工程师",
+        company="宁德新能源",
+        company_normalized="宁德新能源",
+        first_seen=now,
+        last_seen=now,
+    )
+    merged = _dedup([j1, j2], aliases={})
+    assert len(merged) == 1
+
+
 def test_normalize_company_alias_substring():
     """Substring matching in alias table."""
     from agent_core.pipeline.search import _normalize_company
@@ -712,7 +970,7 @@ def test_normalize_company_alias_substring():
 
 def test_enrich_no_security_id_skips(cfg):
     """Job without security_id or lid is skipped."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(id="no_ids", security_id="", lid="")
     result = asyncio.run(enrich_job_jd(job, cfg))
@@ -721,7 +979,7 @@ def test_enrich_no_security_id_skips(cfg):
 
 def test_enrich_unknown_platform_skips(cfg):
     """Job with unknown platform is not enriched."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="uk",
@@ -735,7 +993,7 @@ def test_enrich_unknown_platform_skips(cfg):
 
 def test_enrich_platform_not_enabled_skips(cfg):
     """Disabled platform → skip enrichment."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(id="dis", security_id="abc123", platforms=["maimai"], urls={"maimai": "http://x"})
     result = asyncio.run(enrich_job_jd(job, cfg))
@@ -744,7 +1002,7 @@ def test_enrich_platform_not_enabled_skips(cfg):
 
 def test_enrich_boss_success(monkeypatch, cfg):
     """Successful enrichment for boss_zhipin."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="boss1",
@@ -772,7 +1030,7 @@ def test_enrich_boss_success(monkeypatch, cfg):
 
 def test_enrich_boss_fetch_returns_none(monkeypatch, cfg):
     """fetch_full_jd returns None → description unchanged."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="boss2",
@@ -799,7 +1057,7 @@ def test_enrich_boss_fetch_returns_none(monkeypatch, cfg):
 
 def test_enrich_boss_exception_graceful(monkeypatch, cfg):
     """Exception during fetch_full_jd → logged, job returned unchanged."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="boss3",
@@ -826,7 +1084,7 @@ def test_enrich_boss_exception_graceful(monkeypatch, cfg):
 
 def test_enrich_liepin_success(monkeypatch, cfg):
     """Enrich liepin job via LiepinAdapter."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="lp1",
@@ -849,7 +1107,7 @@ def test_enrich_liepin_success(monkeypatch, cfg):
 
 def test_enrich_no_platforms_field_uses_urls(monkeypatch, cfg):
     """Job with empty platforms but populated urls → uses urls keys."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="urls_only",
@@ -937,9 +1195,19 @@ def test_tailor_resume_with_direction_none(cfg):
     """tailor_resume with direction=None uses job.direction."""
     from agent_core.pipeline.tailor import tailor_resume
 
-    provider = FakeProvider(["## 定制简历\n\n内容"])
+    provider = FakeProvider(
+        [
+            "## 定制简历\n\n"
+            "## 教育背景\n\n某大学 本科\n\n"
+            "## 核心能力\n\n- AMR/AGV 调试\n\n"
+            "## 工作经历\n\n- 设备工程师\n\n"
+            "## 技能\n\n- PLC\n\n"
+            "## 自我评价\n\n踏实肯干"
+        ]
+    )
     text = asyncio.run(tailor_resume(_job(), cfg, provider, direction=None))
     assert "定制简历" in text
+    assert provider.calls == 1
 
 
 # ---------- search error paths ----------
@@ -964,7 +1232,7 @@ def test_search_all_excluded_exception_in_results(cfg, monkeypatch):
     # Only boss_zhipin is enabled; liepin is disabled by default
     cfg.platforms["boss_zhipin"].enabled = True
 
-    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"]))
+    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"], keywords=["AMR"]))
     assert len(jobs) >= 1
     assert jobs[0].id == "ok"
 
@@ -1093,17 +1361,19 @@ def test_dedup_empty_list(cfg):
 def test_search_all_with_explicit_directions(cfg, monkeypatch):
     """search_all with explicit directions list."""
     from agent_core.pipeline import search
-    from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+    from agent_core.platforms.byd import BydAdapter
 
     async def fake_search(
         self, keywords, location, cookie_path=None, headless=False, rate_limit_seconds=None
     ):
         return [_job(id="d1")]
 
-    monkeypatch.setattr(BossZhipinAdapter, "search", fake_search)
+    monkeypatch.setattr(BydAdapter, "search", fake_search)
 
     jobs = asyncio.run(
-        search.search_all(cfg, directions=["equipment_amr"], platform_names=["boss_zhipin"])
+        search.search_all(
+            cfg, directions=["equipment_amr"], platform_names=["byd"], keywords=["AMR"]
+        )
     )
     assert len(jobs) == 1
 
@@ -1111,18 +1381,21 @@ def test_search_all_with_explicit_directions(cfg, monkeypatch):
 def test_search_all_skips_unknown_direction(cfg, monkeypatch):
     """search_all skips direction not in config.directions."""
     from agent_core.pipeline import search
-    from agent_core.platforms.boss_zhipin import BossZhipinAdapter
+    from agent_core.platforms.byd import BydAdapter
 
     async def fake_search(
         self, keywords, location, cookie_path=None, headless=False, rate_limit_seconds=None
     ):
         return [_job(id="d2")]
 
-    monkeypatch.setattr(BossZhipinAdapter, "search", fake_search)
+    monkeypatch.setattr(BydAdapter, "search", fake_search)
 
     jobs = asyncio.run(
         search.search_all(
-            cfg, directions=["nonexistent_dir", "equipment_amr"], platform_names=["boss_zhipin"]
+            cfg,
+            directions=["nonexistent_dir", "equipment_amr"],
+            platform_names=["byd"],
+            keywords=["AMR"],
         )
     )
     assert len(jobs) >= 1
@@ -1143,7 +1416,7 @@ def test_search_all_skips_disabled_platform(cfg, monkeypatch):
     for p in cfg.platforms.values():
         p.enabled = False
 
-    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"]))
+    jobs = asyncio.run(search.search_all(cfg, directions=["equipment_amr"], keywords=["AMR"]))
     assert jobs == []
 
 
@@ -1209,12 +1482,62 @@ def test_search_one_general_exception(monkeypatch, cfg):
         cs_mod.COMPANY_SITES.update(original)
 
 
+# ---------- filter_by_company ----------
+
+
+def test_filter_by_company_case_insensitive():
+    """filter_by_company matches case-insensitively on company and company_normalized."""
+    from agent_core.pipeline.search import filter_by_company
+
+    j1 = _job(id="1", company="大疆创新", company_normalized="大疆")
+    j2 = _job(id="2", company="华为技术", company_normalized="华为")
+    j3 = _job(id="3", company="DJI", company_normalized="大疆")
+
+    # Match by company
+    result = filter_by_company([j1, j2, j3], "大疆")
+    assert len(result) == 2
+    assert {j.id for j in result} == {"1", "3"}
+
+    # Case insensitive
+    result = filter_by_company([j1, j2, j3], "DJI")
+    assert len(result) == 1
+    assert result[0].id == "3"
+
+    # No match
+    result = filter_by_company([j1, j2, j3], "字节跳动")
+    assert result == []
+
+
+def test_filter_by_company_empty_input():
+    """filter_by_company with empty company string returns all jobs."""
+    from agent_core.pipeline.search import filter_by_company
+
+    jobs = [_job(id="1"), _job(id="2")]
+    assert filter_by_company(jobs, "") == jobs
+    assert filter_by_company(jobs, "  ") == jobs
+
+    # Empty job company attributes don't crash
+    j = _job(id="empty", company="", company_normalized="")
+    assert filter_by_company([j], "test") == []
+
+
+def test_filter_by_company_substring_match():
+    """filter_by_company uses substring matching."""
+    from agent_core.pipeline.search import filter_by_company
+
+    j1 = _job(id="1", company="北京大疆创新科技有限公司", company_normalized="大疆")
+    j2 = _job(id="2", company="大疆", company_normalized="大疆")
+
+    result = filter_by_company([j1, j2], "大疆")
+    assert len(result) == 2
+
+
 # ---------- enrichment remaining coverage ----------
 
 
 def test_enrich_platform_not_in_config(monkeypatch, cfg):
     """Platform in job.urls not in config.platforms."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     job = _job(
         id="unk",
@@ -1228,7 +1551,7 @@ def test_enrich_platform_not_in_config(monkeypatch, cfg):
 
 def test_enrich_unsupported_platform_type(cfg):
     """A platform that IS in config but IS NOT boss/liepin → logged warning."""
-    from agent_core.platforms.enrichment import enrich_job_jd
+    from agent_core.pipeline.enrichment import enrich_job_jd
 
     # job51 IS in config but enrichment doesn't support it
     job = _job(
@@ -1264,34 +1587,19 @@ def test_tailor_open_job_link_dict_with_empty_value(monkeypatch):
     assert "liepin.com" in opened[0]
 
 
-# ---------- prescreen confidence penalty ----------
+def test_open_dashboard_opens_browser(monkeypatch):
+    from agent_core.pipeline.orchestrator import _open_dashboard
 
+    opened = []
 
-def test_prescreen_low_confidence_applies_penalty(cfg):
-    from agent_core.pipeline import prescreen
+    def fake_open(url):
+        opened.append(url)
 
-    # Weak match (1 feature hit) → low confidence → -10 penalty
-    job = _job(title="AMR", description="AMR", id="weak")
-    raw = prescreen._score_job(job, cfg, "equipment_amr")
-    ps = prescreen.prescreen([job], cfg)
-    assert len(ps) == 1
-    assert ps[0].confidence == "low"
-    assert ps[0].score == max(0.0, raw - 10.0)
-
-
-def test_prescreen_high_confidence_no_penalty(cfg):
-    from agent_core.pipeline import prescreen
-
-    # Strong match (many feature hits) → high confidence → no penalty
-    job = _job(
-        title="AMR AGV 调度 SLAM 导航 激光",
-        description="AMR AGV PLC SLAM MES WMS SCADA 调度 导航",
-        id="strong",
-    )
-    raw = prescreen._score_job(job, cfg, "equipment_amr")
-    ps = prescreen.prescreen([job], cfg)
-    assert ps[0].confidence == "high"
-    assert ps[0].score == raw  # no penalty
+    monkeypatch.setattr("agent_core.server.serve._ensure_dashboard", lambda *a, **k: False)
+    monkeypatch.setattr("webbrowser.open", fake_open)
+    _open_dashboard()
+    assert opened
+    assert "8765" in opened[0]
 
 
 # ---------- windows_toast smoke (no crash) ----------

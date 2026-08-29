@@ -30,13 +30,18 @@ class TestBossRateLimit:
     @patch("agent_core.platforms.boss_zhipin._session_cookie_valid")
     @patch("agent_core.platforms.boss_zhipin._notify_anti_bot")
     async def test_code_37_backoff_from_config(self, mock_notify, mock_valid, mock_load, caplog):
-        """Test that code-37 triggers backoff with config value, not hardcoded 300."""
+        """code-37 backoff is a fixed adapter constant (120s), not the
+        request throttle. Verify the constant is used and the log message
+        carries that value (not the rate_limit_seconds)."""
         mock_load.return_value = []
         mock_valid.return_value = True
 
-        # Create adapter with custom rate_limit_seconds
+        # Create adapter with custom rate_limit_seconds (must NOT flow into
+        # the anti-bot backoff — they serve different purposes).
         test_rate_limit = 10.0
         adapter = BossZhipinAdapter(rate_limit_seconds=test_rate_limit)
+        assert adapter._rate_limit_seconds == test_rate_limit
+        assert adapter._ANTI_BOT_BACKOFF_SECONDS == 120
 
         # Mock API response with code 37
         mock_obj = {
@@ -52,14 +57,15 @@ class TestBossRateLimit:
                 keyword="test", city_code="100010000", cookie_str="test=123", max_pages=1
             )
 
-        # Verify backoff uses the config value, not hardcoded 300
-        assert adapter._ANTI_BOT_BACKOFF_SECONDS == test_rate_limit
+        # Backoff constant is unchanged by the anti-bot path.
+        assert adapter._ANTI_BOT_BACKOFF_SECONDS == 120
         mock_notify.assert_called_once()
         assert len(caplog.records) > 0
-        # Check log contains the config value
+        # The log line reports the actual backoff used (120), not the
+        # request-throttle value (10.0).
         backoff_logs = [r for r in caplog.records if "Backing off" in r.message]
         assert len(backoff_logs) > 0
-        assert str(test_rate_limit) in backoff_logs[0].message
+        assert "120" in backoff_logs[0].message
 
     @patch("agent_core.platforms.boss_zhipin._load_cookies")
     @patch("agent_core.platforms.boss_zhipin._session_cookie_valid")
@@ -107,4 +113,8 @@ class TestBossRateLimit:
 
         # Should use default 1.5
         assert adapter._rate_limit_seconds == 1.5
-        assert adapter._ANTI_BOT_BACKOFF_SECONDS == 300  # Default backoff
+        # code 37 backoff is a fixed constant (120s) in the adapter — it is
+        # intentionally NOT wired to rate_limit_seconds (a request throttle
+        # would be far too short a wait after an anti-bot challenge). The
+        # earlier assertion (== 300) reflected a since-removed 300s default.
+        assert adapter._ANTI_BOT_BACKOFF_SECONDS == 120  # Default backoff

@@ -1,0 +1,130 @@
+# agent-core 配置模板
+# 使用方法：复制本文件为 config.yaml 后按需修改
+#   cp config.example.yaml config.yaml
+#
+# LLM 密钥通过环境变量提供（见 .env.example），本文件不存放任何密钥。
+
+platforms:
+  boss_zhipin:
+    enabled: true            # BOSS 直聘（需手动导出 cookie，见 docs/cookie-refresh-boss.md）
+    cookie_path: data/cookies/boss_zhipin.json
+    rate_limit_seconds: 30
+    search_max_pages: 1      # 反爬平台建议保持 1
+  liepin:
+    enabled: true
+    cookie_path: data/cookies/liepin.json
+    rate_limit_seconds: 30
+    search_max_pages: 1
+  job51:
+    enabled: false           # 存根（未实现）
+  zhilian:
+    enabled: true            # Playwright headed 浏览器模式（登录一次长期可用）
+    browser_profile_dir: data/zhilian_browser_profile
+    search_max_pages: 1
+  maimai:
+    enabled: false           # 存根（未实现）
+  tencent:
+    enabled: true            # 公开 API，无需 cookie
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
+  netease:
+    enabled: true
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
+  byd:
+    enabled: true
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
+  naura:
+    enabled: true
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
+  yofc:
+    enabled: true
+    login_method: none
+    rate_limit_seconds: 1
+    search_max_pages: 2
+
+search:
+  directions:
+    default:
+      # 简历通过 Dashboard「文件上传」tab 上传后自动写入此路径
+      resume_file: resumes/简历.txt
+      keywords: []
+  location: 全国
+  min_salary: 6000
+  exclude_keywords:
+    - 劳务派遣
+    - 外包
+    - 派遣
+    - 外派
+
+# 跨平台去重公司别名表（canonical + 变体）
+company_aliases:
+  catl:
+    - 宁德时代
+    - CATL
+    - 宁德时代新能源科技股份有限公司
+  byd:
+    - 比亚迪
+    - BYD
+    - 比亚迪股份有限公司
+  tencent:
+    - 腾讯
+    - Tencent
+    - 深圳市腾讯计算机系统有限公司
+  netease:
+    - 网易
+    - NetEase
+    - 网易(杭州)网络有限公司
+  naura:
+    - 北方华创
+    - NAURA
+    - 北方华创科技集团股份有限公司
+  yofc:
+    - 长飞光纤
+    - YOFC
+    - 长飞光纤光缆股份有限公司
+
+matching:
+  match_min_score: 50
+  # 在 pipeline 中是否自动抓取完整 JD（默认关闭，批量抓取容易触发反爬）
+  enrich_in_pipeline: false
+  enrich_top_n: 10
+
+llm:
+  provider: deepseek
+  model: deepseek-v4-flash
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
+  temperature: 0.7
+  # max_tokens 是输出上限；thinking 模式下 = reasoning + content 共享额度
+  max_tokens: 384000
+  thinking:
+    enabled: true
+    effort: high            # high | max
+
+notify:
+  windows_toast: true       # Windows 桌面通知
+
+schedule:
+  enabled: true
+  interval_hours: 6
+  directions:
+    - default
+  quiet_hours:
+    - 0
+    - 7
+
+# 实时语音模拟面试（火山引擎豆包 SC2.0）；密钥经 VOLC_APP_KEY/VOLC_APP_ID/VOLC_ACCESS_KEY 环境变量
+realtime:
+  enabled: true
+  ws_port: 8766
+  volc_endpoint: wss://openspeech.bytedance.com/api/v3/realtime/dialogue
+  model: 2.2.0.0
+  voice: saturn_zh_female_chengshujiejie_tob
+  resource_id: volc.speech.dialog

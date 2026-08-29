@@ -1,9 +1,14 @@
-"""Tests for Zhilian platform: response parsing, anti-bot detection, rate limiting."""
+"""Tests for Zhilian browser-mode search, item parsing and salary parsing."""
 
 import asyncio
-import json
 
 from agent_core.platforms.zhilian import ZhilianAdapter, _parse_salary
+from agent_core.platforms.zhilian_browser import (
+    _build_search_url,
+)
+from agent_core.platforms.zhilian_browser import (
+    _parse_salary as _browser_parse_salary,
+)
 
 # ── _parse_salary tests ──
 
@@ -24,6 +29,11 @@ def test_parse_salary_empty():
     assert _parse_salary("") == (None, None)
     assert _parse_salary("薪资面议") == (None, None)
     assert _parse_salary(None) == (None, None)  # type: ignore[arg-type]
+
+
+def test_parse_salary_daily_returns_none():
+    assert _parse_salary("300-500元/天") == (None, None)
+    assert _parse_salary("40元/时") == (None, None)
 
 
 # ── _api_item_to_job tests ──
@@ -81,6 +91,7 @@ def test_item_to_job_basic():
     assert job.location == "北京"
     assert job.salary_min == 15000
     assert job.salary_max == 25000
+    assert job.education == "本科"
     assert "学历: 本科" in job.description
     assert "经验: 3-5年" in job.description
     assert job.urls["zhilian"] == "https://jobs.zhaopin.com/123.htm"
@@ -156,270 +167,165 @@ def test_normalize():
     assert "zhilian" in job.platforms
 
 
-# ── API response parsing tests (mock urllib) ──
+# ── Browser search tests (mock ZhilianBrowser) ──
 
 
-def make_mock_search_resp(items=None, count=5):
-    """Build a fake fe-api/c/i/sou JSON response with real data.list structure."""
-    return json.dumps(
-        {
-            "code": 200,
-            "apiCode": 200,
-            "message": "成功",
-            "data": {
-                "count": count,
-                "list": items or [],
-            },
-        }
-    ).encode()
+def make_mock_browser_item(
+    name="AMR工程师",
+    company_name="宁德时代",
+    salary60="20K-30K",
+    work_city="北京",
+    education="本科",
+    working_exp="3-5年",
+    position_url="https://jobs.zhaopin.com/123.htm",
+    number="ZL001",
+):
+    """Build a mock browser-intercepted API item (same format as HTTP API)."""
+    return {
+        "name": name,
+        "companyName": company_name,
+        "salary60": salary60,
+        "workCity": work_city,
+        "education": education,
+        "workingExp": working_exp,
+        "positionURL": position_url,
+        "number": number,
+        "workType": "全职",
+    }
 
 
-def test_search_parses_list(monkeypatch):
-    """Search should parse results from data.list (real API field)."""
-    from agent_core.platforms import zhilian
+class MockZhilianBrowser:
+    """Mock browser that returns predefined items."""
 
-    item = make_zhilian_item(name="AMR工程师", company_name="宁德时代", salary60="20K-30K")
+    def __init__(self, profile_dir="data/zhilian_browser_profile"):
+        self.profile_dir = profile_dir
+        self._items: list[dict] = []
 
-    class FakeResp:
-        def read(self):
-            return make_mock_search_resp([item], count=1)
+    def set_items(self, items: list[dict]):
+        self._items = items
 
-        def __enter__(self):
-            return self
+    async def search(self, keyword="", city_code="0", headless=False, timeout_ms=30000):
+        return list(self._items)
 
-        def __exit__(self, *a):
-            pass
+    async def close(self):
+        pass
 
-    def fake_urlopen(req, timeout=20):
-        return FakeResp()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
+def test_search_browser_returns_results(monkeypatch):
+    """search() via browser mode returns Job objects from intercepted items."""
+    mock_browser = MockZhilianBrowser()
+    mock_browser.set_items(
+        [
+            make_mock_browser_item(name="AMR工程师", company_name="宁德时代"),
+            make_mock_browser_item(name="AGV算法工程师", company_name="比亚迪"),
+        ]
+    )
+
+    async def _mock_get_browser(profile_dir="data/zhilian_browser_profile", headless=False):
+        return mock_browser
+
     monkeypatch.setattr(
-        zhilian,
-        "_load_cookies",
-        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
+        "agent_core.platforms.zhilian_browser.get_browser",
+        _mock_get_browser,
     )
 
-    adapter = ZhilianAdapter(rate_limit_seconds=0)
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["AMR"],
-            location="北京",
-            cookie_path="data/cookies/zhilian.json",
-        )
-    )
+    adapter = ZhilianAdapter()
+    jobs = asyncio.run(adapter.search(keywords=["AMR"], location="北京", headless=False))
 
-    assert len(jobs) == 1
+    assert len(jobs) == 2
     assert jobs[0].title == "AMR工程师"
     assert jobs[0].company == "宁德时代"
-    assert jobs[0].salary_min == 20000
-    assert jobs[0].salary_max == 30000
+    assert jobs[1].title == "AGV算法工程师"
 
 
-def test_search_no_cookie_returns_empty(monkeypatch):
-    """Search with no/missing cookie path returns empty list."""
-    adapter = ZhilianAdapter()
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["Python"],
-            location="北京",
-            cookie_path=None,
-        )
-    )
-    assert jobs == []
+def test_search_browser_empty_returns_empty(monkeypatch):
+    """When browser returns 0 items, search() returns [] (browser-only mode)."""
+    mock_browser = MockZhilianBrowser()
+    mock_browser.set_items([])
 
+    async def _mock_get_browser(profile_dir="data/zhilian_browser_profile", headless=False):
+        return mock_browser
 
-def test_search_cookie_expired_returns_empty(monkeypatch):
-    """Search with expired cookie returns empty list."""
-    from agent_core.platforms import zhilian
-
-    monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: False)
-    adapter = ZhilianAdapter()
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["Python"],
-            location="北京",
-            cookie_path="data/cookies/zhilian.json",
-        )
-    )
-    assert jobs == []
-
-
-def test_anti_bot_count_zero_triggers_backoff(monkeypatch):
-    """When API returns code=200 but data.count=0, anti-bot is triggered."""
-    from agent_core.platforms import zhilian
-
-    anti_bot_called = []
-    cookie_expired_called = []
-
-    def fake_anti_bot():
-        anti_bot_called.append(True)
-
-    def fake_cookie_expired():
-        cookie_expired_called.append(True)
-
-    fake_resp = make_mock_search_resp([], count=0)
-
-    class FakeResp:
-        def read(self):
-            return fake_resp
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            pass
-
-    def fake_urlopen(req, timeout=20):
-        return FakeResp()
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
-    monkeypatch.setattr(zhilian, "_notify_anti_bot", fake_anti_bot)
-    monkeypatch.setattr(zhilian, "_notify_cookie_expired", fake_cookie_expired)
     monkeypatch.setattr(
-        zhilian,
-        "_load_cookies",
-        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
+        "agent_core.platforms.zhilian_browser.get_browser",
+        _mock_get_browser,
     )
 
-    async def fake_sleep(seconds: float) -> None:
-        pass
-
-    adapter = ZhilianAdapter(rate_limit_seconds=0)
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["Python"],
-            location="北京",
-            cookie_path="data/cookies/zhilian.json",
-            rate_limit_seconds=0,
-        )
-    )
-
-    assert jobs == []
-    assert len(anti_bot_called) == 1
-    assert len(cookie_expired_called) == 0
-
-
-def test_anti_bot_count_positive_list_empty(monkeypatch):
-    """count>0 but data.list empty = true anti-bot soft block."""
-    from agent_core.platforms import zhilian
-
-    anti_bot_called = []
-
-    def fake_anti_bot():
-        anti_bot_called.append(True)
-
-    fake_resp = make_mock_search_resp([], count=100)
-
-    class FakeResp:
-        def read(self):
-            return fake_resp
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            pass
-
-    def fake_urlopen(req, timeout=20):
-        return FakeResp()
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
-    monkeypatch.setattr(zhilian, "_notify_anti_bot", fake_anti_bot)
-    monkeypatch.setattr(zhilian, "_notify_cookie_expired", lambda: None)
-    monkeypatch.setattr(
-        zhilian,
-        "_load_cookies",
-        lambda path: [{"name": "FSSBBIl1UgzbN7NS", "value": "test", "expires": 2000000000}],
-    )
-
-    async def fake_sleep(seconds: float) -> None:
-        pass
-
-    adapter = ZhilianAdapter(rate_limit_seconds=0)
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["Python"],
-            location="北京",
-            cookie_path="data/cookies/zhilian.json",
-            rate_limit_seconds=0,
-        )
-    )
-
-    assert jobs == []
-    assert len(anti_bot_called) == 1
-
-
-def test_non_200_code_triggers_cookie_expired(monkeypatch):
-    """When API returns non-200 code, cookie-expired is triggered."""
-    from agent_core.platforms import zhilian
-
-    anti_bot_called = []
-    cookie_expired_called = []
-
-    def fake_anti_bot():
-        anti_bot_called.append(True)
-
-    def fake_cookie_expired():
-        cookie_expired_called.append(True)
-
-    fake_resp = json.dumps(
-        {"code": 401, "apiCode": 401, "message": "unauthorized", "data": {}}
-    ).encode()
-
-    class FakeResp:
-        def read(self):
-            return fake_resp
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            pass
-
-    def fake_urlopen(req, timeout=20):
-        return FakeResp()
-
-    async def fake_sleep(seconds: float) -> None:
-        pass
-
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setattr(zhilian, "_session_cookie_valid", lambda c: True)
-    monkeypatch.setattr(zhilian, "_notify_anti_bot", fake_anti_bot)
-    monkeypatch.setattr(zhilian, "_notify_cookie_expired", fake_cookie_expired)
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
-
-    adapter = ZhilianAdapter(rate_limit_seconds=0)
-    jobs = asyncio.run(
-        adapter.search(
-            keywords=["Python"],
-            location="北京",
-            cookie_path="data/cookies/zhilian.json",
-            rate_limit_seconds=0,
-        )
-    )
-
-    assert jobs == []
-    assert len(anti_bot_called) == 0
-    assert len(cookie_expired_called) == 1
-
-
-def test_rate_limit_default():
-    """Default rate_limit_seconds is 2.0."""
     adapter = ZhilianAdapter()
-    assert adapter._rate_limit_seconds == 2.0
+    jobs = asyncio.run(adapter.search(keywords=["AMR"], location="北京", headless=False))
+
+    assert jobs == []
 
 
-def test_rate_limit_custom():
-    """Custom rate_limit_seconds is respected."""
-    adapter = ZhilianAdapter(rate_limit_seconds=3.5)
-    assert adapter._rate_limit_seconds == 3.5
+def test_search_browser_import_error_returns_empty(monkeypatch):
+    """When browser module cannot be imported, search() returns [] (no HTTP fallback)."""
+    original_import = __import__
 
+    def _fake_import(name, *args, **kwargs):
+        if "zhilian_browser" in name:
+            raise ImportError("No module named 'playwright'")
+        return original_import(name, *args, **kwargs)
 
-def test_cookie_path_defaults_to_json():
-    """Adapter accepts cookie_path to the standard location."""
+    monkeypatch.setattr("builtins.__import__", _fake_import)
+
     adapter = ZhilianAdapter()
-    assert "zhilian" in adapter.name
+    jobs = asyncio.run(adapter.search(keywords=["AMR"], location="北京", headless=False))
+
+    assert jobs == []
+
+
+def test_browser_parse_salary_k_format():
+    """Browser module's _parse_salary handles K format."""
+    assert _browser_parse_salary("15K-25K") == (15000, 25000)
+    assert _browser_parse_salary("8k-12k") == (8000, 12000)
+
+
+def test_browser_parse_salary_wan_format():
+    """Browser module's _parse_salary handles wan/qian format."""
+    assert _browser_parse_salary("1.5万-2.5万") == (15000, 25000)
+
+
+def test_browser_parse_salary_empty():
+    """Browser module's _parse_salary handles empty/None."""
+    assert _browser_parse_salary("") == (None, None)
+
+
+def test_build_search_url_encodes_keyword():
+    """Keyword and city are URL-encoded before navigation."""
+    assert _build_search_url("AMR AGV+SLAM", "489") == (
+        "https://sou.zhaopin.com/?keyword=AMR%20AGV%2BSLAM&city=489"
+    )
+
+
+def test_adapter_has_browser_profile_dir():
+    """ZhilianAdapter stores browser_profile_dir."""
+    adapter = ZhilianAdapter(browser_profile_dir="data/custom_profile")
+    assert adapter._browser_profile_dir == "data/custom_profile"
+
+
+def test_adapter_default_browser_profile_dir():
+    """ZhilianAdapter has default browser_profile_dir."""
+    adapter = ZhilianAdapter()
+    assert "zhilian_browser_profile" in adapter._browser_profile_dir
+
+
+def test_adapter_default_max_pages_one():
+    """Browser mode only consumes the first XHR batch, so max pages defaults to 1."""
+    adapter = ZhilianAdapter()
+    assert adapter.max_pages == 1
+
+
+def test_fetch_full_jd_short_circuit_when_jd_present():
+    from types import SimpleNamespace
+
+    adapter = ZhilianAdapter()
+    job = SimpleNamespace(description="岗位职责：负责设备维护", lid="http://x")
+    assert asyncio.run(adapter.fetch_full_jd(job, "")) == ""
+
+
+def test_fetch_full_jd_missing_lid_returns_empty():
+    from types import SimpleNamespace
+
+    adapter = ZhilianAdapter()
+    job = SimpleNamespace(description="简单描述", lid="")
+    assert asyncio.run(adapter.fetch_full_jd(job, "")) == ""

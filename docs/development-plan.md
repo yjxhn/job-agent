@@ -5,6 +5,20 @@
 
 ---
 
+> ⚠️ **本文档已归档（2026-07-24）**
+>
+> 本文档为 **2026-06-25 历史基线快照**，多处内容与代码现状严重漂移。以下为最关键漂移项，权威状态以仓库内 `README.md`、`docs/ARCHITECTURE.md` 及实际代码为准：
+>
+> | 项目 | 文档记录 (2026-06-25) | 现状 (2026-07-24) |
+> |------|----------------------|-------------------|
+> | DB Schema | v2，6 张业务表 | **v12**，**12 张业务表**（v11 offer_evaluations / v12 material_drafts 面试准备列） |
+> | CLI 命令 | 14 条 | **17 条** |
+> | 生产可用平台 | 2-5 个 | **8 个 live**（boss_zhipin/liepin/zhilian/tencent/netease/byd/naura/yofc） |
+> | Web Server | Flask | **Python stdlib `http.server.ThreadingHTTPServer`**（端口 8765） |
+> | Dashboard Tab | 7 个 | **10 个** |
+> | LLM Module | `deepseek.py` | **`llm/providers.py`**（deepseek-v4-flash 经 api.deepseek.com） |
+
+
 ## 1. 项目愿景与目标
 
 ### 1.1 核心愿景
@@ -16,7 +30,7 @@
 - **覆盖率**: 核心模块测试覆盖 ≥ 80%
 - **可用性**: 多平台并发搜索响应时间 < 30 秒（10 页结果）
 - **稳定性**: 系统可用性 ≥ 95%（定期运行不崩溃）
-- **成本控制**: Prescreen 阶段省 100+ LLM 调用（规则初筛 > LLM 精排）
+- **成本控制**: 人工筛选阶段省 100+ LLM 调用（用户标记 > LLM 精排）
 
 **用户价值**
 - 自动化 80% 求职流程，减少人工筛选 90%
@@ -36,8 +50,7 @@
 |------|------|------|------|----------|
 | **Search** | 关键词 + 平台配置 | 多平台 HTTP API 并发搜索（Boss/猎聘） | 职位列表 | 无 |
 | **Filter** | Search 结果 | 薪资/地点/排除词过滤 | 筛选后列表 | 无 |
-| **Prescreen** | Filter 后列表 | 规则打分 + 方向选择 | Top 30 | **省 100+ LLM** |
-| **Match** | Top 30 | LLM 精排（并发 5） | 匹配度排序 | 按需 LLM |
+| **Match** | 用户标记的岗位 | LLM 精排（并发 5） | 匹配度排序 | 按需 LLM |
 | **Tailor** | Top 匹配岗位 | 简历定制（.docx + .md） | 定制简历 | 按需 LLM |
 | **Apply** | 定制简历 | （用户手动投递） | 外部投递记录 | 无 |
 | **Track** | 投递记录 | 7 阶段状态机 + 时间线 | 追踪看板 | 无 |
@@ -50,14 +63,14 @@
 - 按方向筛选（industrial_ai_agent / equipment_amr）
 - 按平台筛选
 
-**初筛与精排**
-- 规则初筛（薪资下限、排除词、方向匹配）
+**筛与精排**
+- 人工筛选（用户在 Dashboard 标记 🌟想投递 / ❌不合适）
 - LLM 精排（match_min_score 阈值过滤）
 - 匹配度打分（0-100 分）
 
-**简历与求职信**
+**简历与HR打招呼消息**
 - 定制简历生成（.docx + .md）
-- 求职信生成（基于岗位描述）
+- HR打招呼消息生成（基于岗位描述）
 - 岗位链接自动打开
 
 **投递追踪**
@@ -91,7 +104,7 @@
 
 **稳定性**
 - 系统可用性 ≥ 95%
-- 支持断点续跑（prescreen/match 阶段可中断后恢复）
+- 支持断点续跑（match 阶段可中断后恢复）
 - 错误重试机制（LLM 调用失败重试 3 次）
 
 **可维护性**
@@ -121,7 +134,7 @@
 
 **场景 2: 仅搜索与匹配**
 ```bash
-pipeline --stages search,filter,prescreen,match
+pipeline --stages search,filter,match
 ```
 不生成简历，仅发现高匹配岗位。
 
@@ -152,10 +165,10 @@ agent_core/
 │   ├── __init__.py
 │   ├── search.py            # 多平台并发搜索
 │   ├── filter.py            # 薪资/地点/排除词过滤
-│   ├── prescreen.py         # 规则初筛（成本控制）
+│   ├── match.py              # LLM 精排
 │   ├── match.py             # LLM 精排
 │   ├── tailor.py            # 简历定制
-│   ├── cover_letter.py      # 求职信
+│   ├── cover_letter.py      # HR打招呼消息
 │   ├── interview_prep.py    # 面试准备
 │   ├── offer_eval.py        # Offer 评估
 │   └── salary_advice.py     # 薪资建议
@@ -194,8 +207,8 @@ agent_core/
     ↓（并发 2 平台）
 Filter 过滤
     ↓
-Prescreen 初筛（规则打分）
-    ↓（取 Top 30）
+用户标记 🌟（Dashboard 人工筛选）
+    ↓
 Match 精排（LLM 并发 5）
     ↓（匹配度过滤）
 存入数据库
@@ -246,10 +259,9 @@ class Job(BaseModel):
 **提供商**: DeepSeek（通过 DEEPSEEK_API_KEY 环境变量）
 
 **调用场景**
-1. **Prescreen**: 方向匹配规则打分（无 LLM，规则引擎）
-2. **Match**: LLM 精排（并发 5，JSON 强制 + 重试）
-3. **Tailor**: 简历定制（.docx + .md 生成）
-4. **Cover Letter**: 求职信生成
+1. **Match**: LLM 精排（并发 5，JSON 强制 + 重试）
+2. **Tailor**: 简历定制（.docx + .md 生成）
+4. **Cover Letter**: HR打招呼消息生成
 5. **Interview Prep**: 技术题预测
 6. **Offer Eval**: Offer 打分卡
 7. **Salary Advice**: 薪资建议
@@ -351,7 +363,7 @@ class PlatformAdapter(ABC):
 - ✅ Pydantic Job 模型
 - ✅ SQLite 数据库封装
 - ✅ CLI 入口（14 条命令）
-- ✅ Search + Filter + Prescreen + Match Pipeline
+- ✅ Search + Filter + Match Pipeline
 - ✅ Tailor + Cover Letter（基础版）
 
 **验收标准**
@@ -441,15 +453,12 @@ class PlatformAdapter(ABC):
 **交付物**
 - 🔄 .coveragerc（覆盖率佐证）
 - 🔄 login 命令重构（移除 Playwright 依赖）
-- 🔄 Prescreen 规则配置化
 - 🔄 DB 迁移脚本优化
 - 🔄 rate_limit_seconds 实际生效
 
 **验收标准**
 - [ ] 测试覆盖率 > 75%
 - [ ] login 不依赖 Playwright
-- [ ] Prescreen 规则可配置
-
 **时间**: 1 周
 
 ---
@@ -466,39 +475,46 @@ class PlatformAdapter(ABC):
 
 ---
 
-## 6. 当前状态 (Actual)
+## 6. 最终状态 (Final)
 
-> 最后更新: 2026-06-21
+> 最后更新: 2026-06-25 | **状态: 全部完成，未 commit（用户禁止 push + GitHub 仓库已删）**
+
+### 6.1 功能完成度
 
 | 模块/功能 | 状态 | 说明 |
 |----------|------|------|
 | **7 阶段 Pipeline** | | |
-| Search | ✅ | 5 个平台适配器（BOSS/猎聘/智联/腾讯/网易），HTTP API 可用 |
+| Search | ✅ | **8 个平台适配器全部启用**（BOSS/猎聘/智联/腾讯/网易/比亚迪/北方华创/长飞） |
 | Filter | ✅ | 薪资/地点/排除词过滤完整 |
-| Prescreen | ✅ | 规则初筛 + Top 30，已配置化（prescreen_rules） |
+| Review | ✅ | 用户在 Dashboard 标记 🌟想投递 / ❌不合适 |
 | Match | ✅ | LLM 精排 + 并发5 + JSON强制重试 + min_score + LLM 指数退避重试 |
 | Tailor | ✅ | 简历定制(.docx + .md) |
-| Cover Letter | ✅ | 求职信生成 |
+| Cover Letter | ✅ | HR打招呼消息生成 |
 | Interview Prep | ✅ | 技术题/行为题/项目深挖预测 + 模拟面试 |
 | Offer Eval | ✅ | Offer 打分卡 |
 | Salary Advice | ✅ | 薪资对比建议 |
 | Track | ✅ | 7阶段状态机 + timelines + 手动补录 |
 | Apply | ❌ | 依赖用户手动投递，无自动投递接口 |
 | **平台适配器** | | |
-| boss_zhipin | ⚠️ | HTTP API 可用，但有 code-37 反爬隐患（__zp_stoken__ 短效） |
+| boss_zhipin | ✅ | HTTP API + Cookie，__zp_stoken__ 需定期重抓（SOP 已写） |
 | liepin | ✅ | HTTP API 稳定无反爬 |
-| zhilian | ✅ | 已实现（HTTP API） |
-| tencent | ✅ | 已实现 |
-| netease | ✅ | 已实现 |
-| job51 | ❌ NotImplementedError 存根，用户决定不碰 |
-| maimai | ❌ NotImplementedError 存根，用户决定不碰 |
+| zhilian | ✅ | **Playwright headed 浏览器**（persistent profile，登录一次长期可用），根治 Akamai 反爬 |
+| tencent | ✅ | 公开 API，careers.tencent.com |
+| netease | ✅ | 公开 API，hr.163.com |
+| byd | ✅ | 公开 API，job.byd.com |
+| naura | ✅ | 公开 API（Beisen），北方华创 |
+| yofc | ✅ | 公开 API（Beisen/zhiye.com），长飞光纤 |
+| job51 | ❌ | NotImplementedError 存根，用户决定不碰 |
+| maimai | ❌ | NotImplementedError 存根，用户决定不碰 |
+| **对话模式** | | |
+| job-agent chat | ✅ | DeepSeek function-calling，自然语言→11工具自动调用→中文回复 |
 | **基础设施** | | |
-| CLI 命令 | ✅ | 14 个命令完整，login 已改为 import-cookies（无 Playwright 依赖） |
-| 测试 | ✅ | **294 passed / 6 skipped / 0 fail**，覆盖率 **81.1%** |
+| CLI 命令 | ✅ | 14 命令 + `job-agent chat` 对话 REPL |
+| 测试 | ✅ | **429 passed / 6 skipped / 0 fail**，覆盖率 **85.5%**（门槛 79） |
 | DB | ✅ | SQLite WAL 模式，schema 版本化迁移（v2） |
 | Dashboard | ✅ | Flask + Timeline + OpenAPI + 认证 + 分页 完整 |
 | Scheduler | ✅ | cron 调度 + quiet_hours 完整 |
-| CI/CD | ✅ | Pre-commit hooks + ruff/mypy/bandit 全 0，CI 待推 GitHub |
+| CI/CD | ✅ | ruff/mypy/bandit 全 0，GitHub Actions 就绪（历史记录“已删远程仓库”；2026-08-15 检查 origin 已重新存在，但仍不 push） |
 | **数据模型** | | |
 | JobRecord | ✅ | Pydantic 模型完整 |
 | ApplicationRecord | ✅ | 7阶段状态机完整 |
@@ -507,96 +523,77 @@ class PlatformAdapter(ABC):
 | 定时搜岗 | ✅ | Scheduler daemon 循环完整 |
 | 安静时段 | ✅ | quiet_hours 配置完整 |
 | Toast 通知 | ✅ | Windows Toast 通知完整 |
-| Dashboard | ✅ | Timeline + OpenAPI + 认证 + 分页 完整 |
-| **文档与配置** | | |
-| CLI 帮助 | ✅ | 14条命令帮助文档完整 |
-| 配置文件 | ✅ | config.yaml 完整，所有参数实际使用 |
-| 覆盖率配置 | ✅ | pyproject.toml fail_under=79，实测 81.1% |
-| CI/CD | ✅ | Pre-commit 就绪，GitHub Actions 待推 |
+| Cookie 健康检查 | ✅ | `check-cookies` 命令 + 重抓 SOP |
 | **代码质量** | | |
 | ruff | ✅ | 0 问题 |
-| mypy | ✅ | 0 错误 |
-| bandit | ✅ | 0 高危（B101/B110 已 suppress） |
+| mypy | ✅ | 0 错误（63 文件） |
+| bandit | ✅ | 0 issues（0H/0M/0L） |
 
 ### 6.2 代码规模
 
-- **文件数**: 39 个 Python 文件
-- **测试数量**: **294 个 pytest 测试**（6 skipped 为需 --run-integration 的集成测试）
-- **覆盖率**: **81.1%**（fail_under=79）
-- **LLM**: DeepSeek v4-pro，已加指数退避重试（429/timeout/connection 最多 3 次）
+- **文件数**: 46 个 Python 文件（含 zhilian_browser.py、chat 模块、agent/ tools.py+repl.py）
+- **测试数量**: **429 个 pytest 测试**（6 skipped 为需 --run-integration 的集成测试）
+- **覆盖率**: **85.5%**（fail_under=79，超阈值 6.5%）
+- **LLM**: DeepSeek v4-pro，openai SDK + function-calling，指数退避重试
 - **数据库**: SQLite WAL 模式，6 表 + schema 版本化迁移（v2）
 
-### 6.3 技术债务
+### 6.3 平台维护负担分级
 
-**🔴 高优先级**
-1. ⚠️ **Boss 直聘 code-37 反爬**（__zp_stoken__ 短效 Cookie，频繁调用触发反爬）
+| 等级 | 平台 | 维护方式 |
+|------|------|----------|
+| 零维护 | tencent, netease, byd, naura, yofc | 公开 API，无认证 |
+| 零维护（浏览器） | zhilian | Playwright headed + persistent profile，登录一次长期可用 |
+| 低维护 | liepin | Cookie 稳定，长期有效 |
+| 需定期重抓 | boss_zhipin | `__zp_stoken__` 短效（几小时~天），SOP 已写 |
+
+### 6.4 技术债务
 
 **🟡 中优先级**
-2. ⚠️ **6 个 backlog 大厂官网适配器**（需抓包分析 API，已列入 backlog）
-3. ⚠️ **CI 待推 GitHub**（GitHub Actions workflow 已就绪，待首次推送）
+1. ⚠️ **BOSS `__zp_stoken__` 定期过期**（SOP 已写，需用户手动重抓）
+2. ⚠️ **行业适配器 backlog**：半导体/新能源/制药 12 家需 JS 逆向或无 API（已调研，见 `docs/research/`）
 
 **🟢 低优先级**
-4. ℹ️ **job51/maimai 存根**（用户决定当前不实现）
-5. ℹ️ **Boss 完整 JD 字段**（code-37 阻塞，部分字段不可靠）
+3. ℹ️ **job51/maimai 存根**（用户决定当前不实现）
 
 ---
 
-## 7. 待办与风险
+## 7. 已完成清单
 
-### 7.1 Backlog
+> 以下所有 P0-P3 项在 2026-06-25 前全部落地。不再区分"待办/风险"，改为"已完成"记录。
 
-**P0 - 已完成**
-1. ✅ **login 命令重构**（已移除 Playwright 依赖，改为 import-cookies）
-2. ✅ **Prescreen 规则配置化**（已迁移到 config.yaml prescreen_rules）
-3. ✅ **添加覆盖率配置**（pyproject.toml fail_under=79，实测 81.1%）
-4. ✅ **优化 DB 迁移脚本**（已改为 schema 版本化迁移，非 try-except）
-5. ✅ **修复 rate_limit_seconds 实际生效**（BOSS/猎聘/智联 adapter 均已使用）
-6. ✅ **添加 CI/CD**（Pre-commit hooks + ruff/mypy/bandit 全 0；GitHub Actions 就绪待推）
-7. ✅ **规范日志系统**（已使用 logging 模块替代 print）
-8. ✅ **LLM 指数退避重试**（call_llm_with_retry，429/timeout/connection 最多 3 次）
-9. ✅ **SQLite WAL 模式**（已启用，提升并发读写安全）
+**P0 - 全部完成**
+1. ✅ login 命令重构（移除 Playwright 依赖，改为 import-cookies）
+2. ✅ 人工筛选（Dashboard 用户标记）
+3. ✅ 覆盖率配置（fail_under=79，实测 85.5%）
+4. ✅ DB 迁移脚本优化（schema 版本化迁移）
+5. ✅ rate_limit_seconds 实际生效（所有 adapter 已用）
+6. ✅ CI/CD（Pre-commit + ruff/mypy/bandit + GitHub Actions；2026-08-15 订正：origin 当前存在，仍不 push）
+7. ✅ 日志系统（logging 模块替代 print）
+8. ✅ LLM 指数退避重试（call_llm_with_retry）
+9. ✅ SQLite WAL 模式
 
-**P1 - 核心功能**
-10. 📋 **6 个 backlog 大厂官网适配器**（需抓包分析 API）
-    - 腾讯、网易（已部分实现，需完整抓包验证）
-    - 字节、华为、小米、百度（需从零开始）
+**P1 - 全部完成**
+10. ✅ 平台适配器：8 源全通（含 BYD/NAURA/YOFC）+ 5 公开 API 零维护
+11. ✅ 智联反爬根治：Playwright headed 浏览器，登录一次长期可用
+12. ✅ 对话模式：`job-agent chat`，DeepSeek function-calling
 
-**P2 - 质量保障**
-11. 📋 **CI 首次推 GitHub**（GitHub Actions workflow 已就绪，待推送远程）
+**P2 - 全部完成**
+13. ✅ CI 就绪（GitHub Actions workflow，用户禁止 push 故未推送远程）
+14. ✅ Cookie 健康检查（check-cookies + 重抓 SOP）
+15. ✅ 覆盖率 85.5%（超阈值 6.5%）
 
-**P3 - 体验优化**
-12. ℹ️ **job51/maimai 存根**（用户决定当前不实现）
+**P3 - 按计划不实现**
+16. ℹ️ job51/maimai 存根（用户决定不碰）
 
-### 7.2 已知风险
+### 7.2 已缓解风险
 
-**🔴 高风险**
-1. **Boss 直聘 code-37 反爬**
-   - **问题**: `__zp_stoken__` 短效 Cookie，频繁调用触发反爬
-   - **影响**: 搜索中断，需重新导出 Cookie；完整 JD 字段（code-37 阻塞）不可靠
-   - **缓解**: 降低搜索频率，rate_limit_seconds 配置化，监控 Toast 通知
-   - **长期方案**: 研究 API 签名机制
-
-2. **DeepSeek API 限流**
-   - **问题**: 并发 5 LLM 调用可能触发限流
-   - **影响**: Match 阶段失败率上升
-   - **缓解**: ✅ **已实现指数退避重试**（call_llm_with_retry，1s/2s/4s，最多 3 次，覆盖 429/Timeout/ConnectionError）
-
-**🟡 中风险**
-3. **Cookie 过期未检测**
-   - **问题**: Cookie 过期后静默失败
-   - **影响**: 用户无感知，搜索无结果
-   - **缓解**: 实现登录状态自动检测
-
-4. **并发安全**
-   - **问题**: 多进程同时访问数据库可能冲突
-   - **影响**: 数据不一致
-   - **缓解**: ✅ **已启用 SQLite WAL 模式**
-
-**🟢 低风险**
-5. **测试覆盖率波动**
-   - **问题**: 代码重构可能导致覆盖率下降
-   - **影响**: 无法准确量化质量
-   - **缓解**: fail_under=79（留 2% 余量），每次提交前运行 pytest --cov
+| 风险 | 缓解措施 | 状态 |
+|------|----------|------|
+| BOSS code-37 反爬 | SOP 已写，Toast 通知，rate_limit_seconds | ✅ 已缓解 |
+| DeepSeek API 限流 | 指数退避重试 | ✅ 已解决 |
+| Cookie 过期未检测 | cookie_health.py + check-cookies 命令 | ✅ 已解决 |
+| 并发安全 | SQLite WAL 模式 | ✅ 已解决 |
+| 智联 Akamai 反爬 | Playwright headed 浏览器 | ✅ 已根治 |
 
 ---
 
@@ -604,15 +601,14 @@ class PlatformAdapter(ABC):
 
 ### 8.1 核心功能验收
 
-**Search + Filter + Prescreen + Match**
-- [ ] 运行 `pipeline --stages search,filter,prescreen,match` 成功
-- [ ] 生成 30 个匹配岗位（prescreen_top_n）
+**Search + Filter + Match**
+- [ ] 运行 `pipeline --stages search,filter,match` 成功
 - [ ] Match 阶段返回 0-100 匹配度
 - [ ] 匹配度 < match_min_score（默认 50）的岗位被过滤
 
 **Tailor + Cover Letter**
 - [ ] 运行 `tailor <job-id>` 生成 .docx 文件
-- [ ] 运行 `cover-letter <job-id>` 生成求职信
+- [ ] 运行 `cover-letter <job-id>` 生成HR打招呼消息
 - [ ] 岗位链接自动打开（系统默认浏览器）
 
 **Track**
@@ -660,7 +656,6 @@ class PlatformAdapter(ABC):
 
 **LLM 调用性能**
 - [ ] 5 并发 LLM 调用 < 10 秒
-- [ ] Prescreen 阶段 LLM 调用 < 5 次（Top 30 精排）
 
 **简历生成性能**
 - [ ] 简历定制生成 < 5 秒
@@ -680,16 +675,16 @@ job-agent login --status             # 检查 Cookie 状态
 
 **搜索与匹配**
 ```bash
-job-agent search                     # 搜索所有方向
+job-agent search --keyword AMR      # 按关键词搜索（--keyword 必填）
 job-agent pipeline --stages all      # 完整 Pipeline
 job-agent pipeline --stages search,filter  # 仅搜索+筛选
 job-agent match <job-id>             # 单个岗位匹配度
 ```
 
-**简历与求职信**
+**简历与HR打招呼消息**
 ```bash
 job-agent tailor <job-id>            # 定制简历
-job-agent cover-letter <job-id>      # 求职信
+job-agent cover-letter <job-id>      # HR打招呼消息
 job-agent rematch <job-id>           # 重新匹配
 job-agent rematch --all-since <date> # 批量重新匹配
 ```
@@ -744,12 +739,11 @@ job-agent import-cookies <路径> <平台> --domain <域名>
 - `exclude_keywords`: 排除关键词列表
 
 **matching**（匹配配置）
-- `prescreen_top_n`: 初筛后保留数量（默认 30）
 - `match_min_score`: 精排阈值（默认 50）
 
 **llm**（LLM 配置）
 - `provider`: 提供商（deepseek）
-- `model`: 模型名称（deepseek-v4-pro）
+- `model`: 模型名称（deepseek-v4-flash）
 - `api_key_env`: API Key 环境变量名
 - `temperature`: 温度参数
 - `max_tokens`: 最大 tokens
@@ -771,11 +765,106 @@ job-agent import-cookies <路径> <平台> --domain <域名>
 | v0.8.0 | 2026-06-XX | 测试审计通过（80% 覆盖率） |
 | v1.0.0 | 2026-06-XX | 追踪调度上线（Dashboard + 定时搜岗） |
 | v1.1.0 | 2026-06-20 | 生产就绪（优化与维护进行中） |
+| v2.0.0 | 2026-06-25 | **最终版**：8 源全通 + chat 对话模式 + 智联 Playwright 根治 + 覆盖率 85.5% + 全部改动未 commit（用户禁止 push；2026-08-15 订正：origin 已重新存在，仍不 push） |
 
 ---
 
+## 11. 最终备注
+
+**全部改动留在工作区，未 commit。** 用户于 2026-06-24 禁止 git push 并删除 GitHub 远程仓库（yjxhn/job-agent-resume.git）。当前所有代码、测试、文档修改仅存在于本地工作区。
+
+- **git remote**: 历史记录为已删除（原 `https://github.com/yjxhn/job-agent-resume.git`）；**2026-08-15 现状订正**：`git remote -v` 显示该 origin 当前存在，但继续遵守不 push 约束
+- **未 commit 改动**: Batch W 全部内容（LLM 配置、CI 修复、tencent/naura bug 修复、yofc 适配器、智联 Playwright 浏览器、覆盖率补到 85.5%、chat 模式）
+- **可运行状态**: 8 源全通 + 429 tests pass + 覆盖率 85.5% + LLM 可用
+
 **文档结束**
 
-**最后更新**: 2026-06-20
+**最后更新**: 2026-06-25
 **维护者**: AI Assistant
-**反馈渠道**: 提交 Issue 到项目仓库
+
+
+---
+
+## 12. 2026-07-24 订正附录
+
+> 以下为 2026-07-24 全量读码确认的权威现状，供读者快速对齐。
+
+### 12.1 CLI 命令（17 条）
+
+login, rematch, search, pipeline, tailor, serve, track, cover-letter, interview-prep, mock-interview, offer-eval, salary-advice, import-cookies, check-cookies, schedule, chat, cleanup
+
+### 12.2 平台适配器（8 live + 2 存根）
+
+| 状态 | 平台 | 接入方式 |
+|------|------|----------|
+| ✅ Live | boss_zhipin | HTTP API + Cookie，`__zp_stoken__` 需定期重抓 |
+| ✅ Live | liepin | HTTP API，Cookie 稳定 |
+| ✅ Live | zhilian | Playwright headed 浏览器（persistent profile） |
+| ✅ Live | tencent | 公开 API（careers.tencent.com） |
+| ✅ Live | netease | 公开 API（hr.163.com） |
+| ✅ Live | byd | 公开 API（job.byd.com） |
+| ✅ Live | naura | 公开 API（Beisen），北方华创 |
+| ✅ Live | yofc | 公开 API（Beisen/zhiye.com），长飞光纤 |
+| ❌ 存根 | job51 | NotImplementedError |
+| ❌ 存根 | maimai | NotImplementedError |
+
+### 12.3 数据库（Schema v12，12 张业务表）
+
+| 表名 | 用途 | 关键变更 |
+|------|------|----------|
+| jobs | 职位主表 | |
+| applications | 投递记录 | v10 加 `job_id` UNIQUE 约束 |
+| timelines | 投递时间线 | |
+| match_results | 匹配结果 | |
+| pipeline_runs | Pipeline 运行记录 | |
+| platform_sessions | 平台会话 | |
+| schedules | 定时调度 | |
+| search_status | 搜索状态 | |
+| generated_files | 已生成文件 | |
+| match_feedback | 匹配反馈 | |
+| material_drafts | 材料草稿 | |
+| offer_evaluations | Offer 评估 | **v11 新增** |
+
+（+ `schema_version` 迁移追踪表）
+
+### 12.4 Web Server
+
+- **`server/serve.py`**（非 `server.py`，非 Flask）
+- Python stdlib `http.server.ThreadingHTTPServer`
+- 端口 8765
+- 含 `server/realtime_proxy.py`（豆包 SC2.0 实时语音）
+
+### 12.5 Dashboard（10 个 Tab）
+
+📄文件上传 | 📋人工初筛 | 🎯Agent智能匹配结果 | 📝材料审核台 | 📅投递追踪 | 🎤模拟面试 | 💼Offer评估 | 💰薪资谈判 | 📁已生成文件 | ⚙️Pipeline
+
+### 12.6 LLM
+
+- **Provider**: deepseek-v4-flash，经 `api.deepseek.com` openai 兼容端点（非 glm/claude）
+- **模块**: `llm/providers.py`（非 `deepseek.py`），通过 `create_provider()` 初始化
+- **Thinking 模式**: 开启（`ANTHROPIC_THINKING_EFFORT=max`），reasoning+content 共享 max_tokens
+
+### 12.7 测试
+
+- **703 个测试收集，实测 697 passed / 6 skipped / 0 failed**（2026-08-16 模拟面试 + 职位搜索专项后；历史 672/666/6 已过期）
+- 覆盖率 **52.0%**（2026-08-16 实测；历史 85.5% 已过期，低覆盖集中在 server/browser 模块）
+
+### 12.8 模块结构关键差异
+
+| 文档引用 | 实际路径 |
+|----------|----------|
+| `llm/deepseek.py` | `llm/providers.py` |
+| `platforms/enrichment.py` | `pipeline/enrichment.py` |
+| `server/server.py` | `server/serve.py` |
+| 无 | `server/realtime_proxy.py`（豆包 SC2.0 实时语音） |
+| 无 | `agent/tools.py` + `agent/repl.py`（chat 模式 11 工具） |
+
+### 12.9 配置变更
+
+- `config.yaml` 的 `search.directions` 现仅 `default`（旧的 `industrial_ai_agent` / `equipment_amr` 固定方向已移除）
+- 简历改为**用户上传**（非按方向配置固定模板）
+- prescreen 阶段已于 2026-07-03 移除，当前为人工标记筛选 + LLM 精排
+
+---
+
+**订正基于**: 2026-07-24 全量代码审查 | **订正者**: AI Assistant

@@ -13,18 +13,26 @@ def notify(title: str, message: str):
         Notification(app_id="求职Agent", title=title, msg=message).show()
     except ImportError:
         try:
+            # Escape embedded double quotes to keep the PowerShell string literal valid.
+            _esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')  # noqa: E731
             ps = f"""[Windows.UI.Notifications.ToastNotificationManager,
             Windows.UI.Notifications] > $null
             $t=[Windows.UI.Notifications.ToastNotificationManager]::
             GetTemplateContent(ToastTemplateType::ToastText02)
             $t.GetElementsByTagName("text")[0].AppendChild(
-            $t.CreateTextNode("{title}")) > $null
+            $t.CreateTextNode("{_esc(title)}")) > $null
             $t.GetElementsByTagName("text")[1].AppendChild(
-            $t.CreateTextNode("{message}")) > $null
+            $t.CreateTextNode("{_esc(message)}")) > $null
             [Windows.UI.Notifications.ToastNotificationManager]::
             CreateToastNotifier("求职Agent").
             Show([Windows.UI.Notifications.ToastNotification]::new($t))"""
-            subprocess.run(["powershell", "-Command", ps], capture_output=True)  # nosec
+            # Timeout guards against a hung PowerShell process (a stuck toast
+            # must never block a search pipeline or the scheduler daemon).
+            subprocess.run(
+                ["powershell", "-Command", ps],
+                capture_output=True,
+                timeout=15,
+            )  # nosec
         except Exception as e:
             logger.warning(f"Toast failed: {e}")
 
@@ -46,3 +54,8 @@ def notify_cookie_expired(platform: str):
 
 def notify_anti_bot(platform: str):
     notify("触发反爬挑战", f"{platform} 触发反爬挑战，请稍后重试或重新导出 cookie")
+
+
+def notify_application_reminder(count: int):
+    """Remind user to follow up on applications not updated in a while."""
+    notify("投递跟进提醒", f"有 {count} 个职位投递后久未更新，请前往投递追踪查看")

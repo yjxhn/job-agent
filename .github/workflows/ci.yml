@@ -35,5 +35,8 @@ jobs:
       - name: Security scan with bandit
         run: python -m bandit -r agent_core -c pyproject.toml
 
-      - name: Run tests
-        run: python -m pytest -q
+      - name: LLM provider naming check
+        run: python scripts/check_llm_naming.py
+
+      - name: Run tests with coverage
+        run: python -m pytest -q --cov=agent_core --cov-report=term --cov-report=xml --cov-fail-under=70

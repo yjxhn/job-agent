@@ -245,3 +245,56 @@ def test_rate_limit_custom():
 def test_adapter_name():
     adapter = BydAdapter()
     assert adapter.name == "byd"
+
+
+# ── Fallback (client-side filter) tests ──
+
+
+def test_search_zero_results_no_fallback(monkeypatch):
+    """Keyword API returns 0 results -> return empty (client-side filter removed 2026-08-11)."""
+    call_count = [0]
+
+    def fake_urlopen(req, timeout=20, context=None):
+        call_count[0] += 1
+        return _FakeResp(make_byd_items())  # keyword API: 0 results
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    adapter = BydAdapter(rate_limit_seconds=0)
+    jobs = asyncio.run(adapter.search(keywords=["算法"], location="深圳", rate_limit_seconds=0))
+
+    assert jobs == []  # no expensive 720-job client-side fetch anymore
+    assert call_count[0] == 1  # only the keyword request was made
+
+
+def test_search_http_error_no_fallback(monkeypatch):
+    """Keyword API returns HTTP 400 (Chinese chars) -> return empty, no fallback."""
+    import urllib.error
+
+    call_count = [0]
+
+    def fake_urlopen(req, timeout=20, context=None):
+        call_count[0] += 1
+        raise urllib.error.HTTPError("url", 400, "Bad Request", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    adapter = BydAdapter(rate_limit_seconds=0)
+    jobs = asyncio.run(adapter.search(keywords=["工程师"], location="广州", rate_limit_seconds=0))
+
+    assert jobs == []
+    assert call_count[0] == 1
+
+
+class _FakeResp:
+    def __init__(self, data):
+        self._data = data
+
+    def read(self):
+        return self._data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass

@@ -3,25 +3,7 @@
 import asyncio
 import json
 
-from agent_core.platforms.netease import NeteaseAdapter, _parse_salary
-
-# ── _parse_salary tests ──
-
-
-def test_parse_salary_k_format():
-    assert _parse_salary("15K-25K") == (15000, 25000)
-    assert _parse_salary("8k-12k") == (8000, 12000)
-
-
-def test_parse_salary_wan_format():
-    assert _parse_salary("1.5万-2.5万") == (15000, 25000)
-    assert _parse_salary("8千-1.2万") == (8000, 12000)
-
-
-def test_parse_salary_empty():
-    assert _parse_salary("") == (None, None)
-    assert _parse_salary(None) == (None, None)  # type: ignore[arg-type]
-
+from agent_core.platforms.netease import NeteaseAdapter
 
 # ── _api_item_to_job tests ──
 
