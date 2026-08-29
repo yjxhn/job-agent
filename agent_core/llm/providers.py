@@ -89,7 +89,7 @@ class DeepSeekProvider(LLMProvider):
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
-            http_client=http_client,
+            http_client=http_client,  # type: ignore[arg-type]  # openai SDK httpx2/httpx stub drift
         )
         self.thinking_enabled = thinking_enabled
         self.thinking_effort = thinking_effort

@@ -14,8 +14,8 @@ dependencies = [
     "typer>=0.15",
     "pyyaml>=6.0",
     "pydantic>=2.0",
-    "httpx>=0.28",
-    "openai>=1.0",
+    "httpx>=0.28,<1.0",
+    "openai>=2.0,<3.0",
     "python-docx>=1.0",
     "websockets>=12.0",
 
