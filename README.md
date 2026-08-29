@@ -393,9 +393,9 @@ job-agent serve  # 启动本地 HTTP dashboard
 - 📁 已生成文件：简历(.md/.docx) + HR消息(.md) + 面试准备
 - ⚙️ Pipeline：6 阶段状态总览（search/filter/match/tailor/materials/track + 后置 3 卡）
 
-**模拟面试专项复盘**：`docs/retrospective-2026-08-16-mock-interview.md`（文字/实时语音全链路、focus/清空/评估/前端竞态修复记录与经验教训）。
-**职位搜索专项复盘**：`docs/retrospective-2026-08-16-search-audit.md`（搜索链路 11 缺陷 + 7 策略、UPSERT 保标记、分页/相关性过滤、Dashboard 空状态与 DOM 回归教训）。
-**AI 助手长期记忆**：`AGENTS.md`（进入本仓库先读：铁律、Dashboard HTML/JS 防错清单、搜索/模拟面试权威实现、测试与浏览器工具箱）。
+**复盘与内部文档**：`docs/retrospective-*.md`、`docs/development-plan.md`、`docs/unfinished-work.md`、`AGENTS.md`（AI 助手长期记忆）为本地内部文档，已通过 .gitignore 排除、不随公开仓库发布。
+
+**宣发页**：`website/index.html`（随仓库发布，GitHub Pages 可用）。
 
 **材料审核台流程**：match tab 勾选职位 -> 生成简历+HR消息草稿 -> 材料审核台审核（再生成带 feedback / 确认保存）-> 确认后自动入投递追踪（待投递）+ 文件归档至已生成文件。
 

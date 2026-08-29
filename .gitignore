@@ -52,6 +52,8 @@ Thumbs.db
 # test/verification artifacts
 coverage.json
 *.html
+# website landing page is intentional and must be tracked
+!website/index.html
 
 # Local MCP screenshots / personal working artifacts
 .playwright-mcp/

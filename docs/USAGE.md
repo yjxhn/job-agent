@@ -931,6 +931,11 @@ python tests/phase1_verify.py
 python -m pytest tests/test_mock_end.py tests/test_mock_api.py tests/test_realtime_proxy.py -q
 ```
 
+> ⚠️ **本地测试前需保证 `resumes/` 目录下有至少一份简历文件**（如 `echo test > resumes/example_resume.txt`）。
+> 否则 `match` 相关测试（`test_core.py` / `test_match_legacy.py` 等约 4 项）会因 `load_resume` 找不到简历而
+> 跳过 LLM 调用并失败（`resume load failed`）。CI 已通过创建示例简历规避，本地裸 clone 首次跑测试前需自行创建。
+> 测试产物会写入 `resumes/`（上传流程）与 `output/`，测试证据归档在 `data/log_archive/`。
+
 ### 代码质量工具
 
 ```bash
@@ -982,4 +987,5 @@ python scripts/check_llm_naming.py
   - `scripts/import_cookies.py` / `scripts/check_llm_naming.py` — 辅助脚本
   - `docs/job-agent-test-flow.md` — 完整测试 SOP；`docs/retrospective-2026-08-16-mock-interview.md` — 模拟面试专项复盘
 - **与代码不符之处**：已按 2026-08-16 代码现状订正；历史文档若仍写「schema v11」「模拟面试评估只存 json」「download 用 session_id」均为旧信息。
+- **2026-08-29 整理**：清理项目缓存与调试残留（`__pycache__`/`.mypy_cache`/`.pytest_cache`/`.ruff_cache`/`.playwright-mcp`/空 `unused/`）；删除一次性调试脚本 `scripts/dev/_query_draft.py`；`website/index.html` 营销页纳入版本控制（.gitignore 加例外）；README/docs 索引同步区分公开文档与内部 gitignored 文档；本手册「运行测试」补充 `resumes/` 非空的前置要求。`data/log_archive/`（95MB 历史测试证据）与 `data/backups/` 按既有约定保留。
 - **相关复盘**：`docs/retrospective-2026-08-16-mock-interview.md`（模拟面试）；`docs/retrospective-2026-08-16-search-audit.md`（职位搜索）。

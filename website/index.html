@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JobAgent · AI 求职助手 - 让每一次求职都更高效、更有把握</title>
+<script>document.documentElement.classList.add('js');</script>
+<meta name="description" content="JobAgent 是一款面向求职者与职业顾问的 AI 求职助手：聚合 8 大招聘平台，AI 匹配、定制简历、追踪投递、模拟面试、评估 Offer，把重复劳动交给 AI。" />
+<meta name="theme-color" content="#2563eb" />
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)" />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="zh_CN" />
+<meta property="og:title" content="JobAgent · AI 求职助手 - 从搜岗到 Offer 一站式搞定" />
+<meta property="og:description" content="聚合 8 大招聘平台，AI 匹配、定制简历、追踪投递、模拟面试、评估 Offer，把重复劳动交给 AI。" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="JobAgent · AI 求职助手" />
+<meta name="twitter:description" content="从搜岗到 Offer 一站式搞定的 AI 求职助手。" />
+<meta name="twitter:image" content="og-image.png" />
+<meta property="og:image" content="og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="JobAgent · AI 求职助手：聚合 8 大招聘平台，AI 匹配、定制简历、追踪投递、模拟面试、评估 Offer" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%230891b2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='44' font-family='Arial,sans-serif' font-size='34' font-weight='900' fill='%23ffffff' text-anchor='middle'%3EJ%3C/text%3E%3C/svg%3E" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "JobAgent",
+  "description": "AI 求职助手：聚合 8 大招聘平台，AI 匹配、定制简历、追踪投递、模拟面试、评估 Offer。",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "image": "og-image.png",
+  "screenshot": "og-image.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY", "description": "本地部署，免费体验" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "JobAgent 安全吗？我的简历会泄露吗？", "acceptedAnswer": { "@type": "Answer", "text": "JobAgent 默认本地运行，简历、Cookie、投递记录和生成文件都存在本机 SQLite 与目录中，不强制上传云端。API Key 通过环境变量配置。" } },
+    { "@type": "Question", "name": "需要哪些平台账号？", "acceptedAnswer": { "@type": "Answer", "text": "BOSS直聘、猎聘、智联需要对应的登录态；腾讯、网易、比亚迪、北方华创、长飞光纤等公开职位源无需单独账号。" } },
+    { "@type": "Question", "name": "适合应届生吗？还是只适合有经验的人？", "acceptedAnswer": { "@type": "Answer", "text": "都适合。JobAgent 根据你的实际简历与目标岗位进行匹配和定制，应届生和有经验求职者都可以使用。" } },
+    { "@type": "Question", "name": "可以做成私有化部署吗？", "acceptedAnswer": { "@type": "Answer", "text": "可以。企业和团队版支持本地/私有化部署咨询、招聘源按需接入、定制开发与系统集成。" } },
+    { "@type": "Question", "name": "除了界面，能自动化运行吗？", "acceptedAnswer": { "@type": "Answer", "text": "可以。内置 17 个 CLI 命令，支持搜索、匹配、材料生成、投递追踪、模拟面试、定时任务等自动化操作。" } }
+  ]
+}
+</script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f8fc;
+    --bg2: #eef3f9;
+    --card: #ffffff;
+    --card2: #f1f5f9;
+    --border: #e2e8f0;
+    --border2: #cbd5e1;
+    --text: #0f172a;
+    --dim: #5b6b84;
+    --primary: #2563eb;
+    --cyan: #0891b2;
+    --violet: #7c3aed;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --danger: #ef4444;
+    --radius: 20px;
+    --maxw: 1180px;
+    --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --ease: cubic-bezier(.22, .61, .36, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 700px at 8% -10%, rgba(37,99,235,.10), transparent 55%),
+      radial-gradient(1000px 700px at 100% 5%, rgba(8,145,178,.08), transparent 50%),
+      radial-gradient(1100px 900px at 50% 120%, rgba(124,58,237,.07), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+  ::selection { background: rgba(37,99,235,.18); }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 3px solid rgba(37,99,235,.35); outline-offset: 2px; border-radius: 6px; }
+  h1, h2, h3, h4 { text-wrap: balance; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .skip-link {
+    position: fixed; top: 12px; left: 12px; z-index: 200;
+    padding: 10px 18px; border-radius: 12px;
+    background: #0f172a; color: #fff; font-size: 14px; font-weight: 650;
+    transform: translateY(-70px); transition: transform .25s ease;
+  }
+  .skip-link:focus { transform: none; }
+  .container { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  .section { padding: 96px 0; position: relative; scroll-margin-top: 90px; }
+  .section.tint { background: rgba(226,232,240,.32); border-block: 1px solid rgba(203,213,225,.6); }
+  .section.pt0 { padding-top: 0; }
+  .section.pt24 { padding-top: 24px; }
+  .section-head { max-width: 780px; margin-bottom: 52px; }
+  .section-head.center { margin-left: auto; margin-right: auto; text-align: center; }
+  .section-title { font-size: clamp(30px, 4vw, 46px); font-weight: 850; letter-spacing: -.02em; line-height: 1.2; margin: 18px 0 14px; color: #0f172a; }
+  .section-desc { font-size: 17px; color: var(--dim); }
+  .grad { background: linear-gradient(120deg, #2563eb, #0891b2, #7c3aed); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px;
+    border: 1px solid #bfdbfe; border-radius: 999px;
+    background: #eff6ff; color: #1d4ed8; font-size: 13px; font-weight: 650;
+  }
+  .btn {
+    position: relative; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 14px 26px; border-radius: 14px; font-weight: 650; font-size: 15px;
+    transition: all .25s ease; cursor: pointer; border: 1px solid transparent; white-space: nowrap;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff; box-shadow: 0 12px 28px rgba(37,99,235,.25);
+  }
+  .btn-primary::after {
+    content: ""; position: absolute; inset: 0; z-index: 1;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.35) 50%, transparent 60%);
+    transform: translateX(-130%); transition: transform .65s ease;
+  }
+  .btn-primary:hover::after { transform: translateX(130%); }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(37,99,235,.32); }
+  .btn-ghost { background: #fff; border-color: #cbd5e1; color: #0f172a; }
+  .btn-ghost:hover { background: #f8fafc; transform: translateY(-2px); }
+  .btn-lg { padding: 16px 32px; font-size: 16px; }
+
+  .progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 101; background: linear-gradient(90deg, #2563eb, #0891b2, #7c3aed); border-radius: 0 3px 3px 0; }
+  .navbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    background: rgba(255,255,255,.82); border-bottom: 1px solid rgba(15,23,42,.06);
+    box-shadow: 0 4px 20px rgba(15,23,42,.04);
+    transition: background .3s ease, box-shadow .3s ease;
+  }
+  .navbar.scrolled { background: rgba(255,255,255,.94); box-shadow: 0 8px 30px rgba(15,23,42,.08); }
+  .nav-inner {
+    max-width: var(--maxw); margin: 0 auto; padding: 0 24px;
+    height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  }
+  .logo { display: flex; align-items: center; gap: 11px; font-weight: 850; font-size: 21px; letter-spacing: -.02em; color: #0f172a; }
+  .logo-mark {
+    width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(135deg, #2563eb, #0891b2);
+    color: #fff; font-size: 19px; font-weight: 900; box-shadow: 0 8px 20px rgba(37,99,235,.25);
+    flex: none;
+  }
+  .nav-links { display: flex; align-items: center; gap: 30px; font-size: 15px; color: #64748b; }
+  .nav-links a { position: relative; transition: color .2s ease; }
+  .nav-links a:hover { color: #0f172a; }
+  .nav-links a.active { color: #1d4ed8; font-weight: 650; }
+  .nav-links a.active::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -8px; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, #2563eb, #0891b2);
+  }
+  .nav-cta { font-size: 14px; padding: 11px 20px; }
+  .hamburger { display: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; color: #0f172a; padding: 9px 12px; cursor: pointer; font-size: 17px; }
+  .mobile-menu { display: none; flex-direction: column; gap: 6px; padding: 18px 24px 26px; background: rgba(255,255,255,.98); border-bottom: 1px solid var(--border); }
+  .mobile-menu.open { display: flex; animation: menuIn .28s var(--ease); }
+  .mobile-menu a { padding: 11px; border-radius: 11px; color: #64748b; font-size: 16px; }
+  .mobile-menu a:hover { background: #f1f5f9; color: #0f172a; }
+  @keyframes menuIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+  .hero { min-height: 94vh; display: flex; align-items: center; padding: 130px 0 90px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 60px; align-items: center; }
+  .hero h1 { font-size: clamp(40px, 5.6vw, 68px); line-height: 1.13; letter-spacing: -.035em; font-weight: 900; margin: 24px 0; color: #0f172a; }
+  .hero .lead { font-size: 19px; color: #475569; max-width: 600px; margin-bottom: 32px; }
+  .rotator { display: inline-block; }
+  .rotator.swap { animation: wordIn .45s var(--ease); }
+  @keyframes wordIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 36px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 30px; }
+  .pill {
+    padding: 8px 14px; border-radius: 999px; border: 1px solid #e2e8f0;
+    background: #fff; font-size: 13px; color: #475569; box-shadow: 0 2px 8px rgba(15,23,42,.04);
+    transition: all .25s ease;
+  }
+  .pill:hover { border-color: #bfdbfe; color: #1d4ed8; background: #eff6ff; transform: translateY(-2px); }
+  .hero-meta { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; color: #64748b; }
+  .hero-meta span { display: inline-flex; align-items: center; gap: 7px; }
+  .hero-meta i { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 12px rgba(16,185,129,.5); animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,.32); } 50% { box-shadow: 0 0 0 5px rgba(16,185,129,0); } }
+
+  .mock-stage { position: relative; }
+  .dashboard-mock {
+    background: linear-gradient(180deg, #0b1220, #101a2e);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 26px; padding: 14px;
+    box-shadow: 0 40px 80px rgba(15,23,42,.25), 0 0 60px rgba(37,99,235,.12);
+    transform: perspective(1600px) rotateY(-7deg) rotateX(2deg);
+    transition: transform .6s ease;
+    will-change: transform;
+  }
+  .dashboard-mock:hover { transform: perspective(1600px) rotateY(0) rotateX(0); }
+  .float-chip {
+    position: absolute; z-index: 2; display: flex; align-items: center; gap: 8px;
+    padding: 10px 15px; border-radius: 14px; background: rgba(255,255,255,.9);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(226,232,240,.9); font-size: 13px; font-weight: 650; color: #0f172a;
+    box-shadow: 0 14px 30px rgba(15,23,42,.14); animation: floaty 5.5s ease-in-out infinite;
+  }
+  .float-chip b { color: #2563eb; }
+  .chip-a { top: -18px; right: 14px; animation-delay: .6s; }
+  .chip-b { bottom: -16px; left: 8px; }
+  .float-chip .dot { width: 9px; height: 9px; border-radius: 50%; background: #10b981; flex: none; box-shadow: 0 0 10px rgba(16,185,129,.55); }
+  @keyframes floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  .mock-bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 14px; }
+  .mock-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .mock-url { flex: 1; background: rgba(255,255,255,.08); border-radius: 999px; height: 28px; display: flex; align-items: center; padding: 0 15px; font-size: 12px; color: #94a3b8; min-width: 0; }
+  .mock-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .mock-tab { padding: 7px 11px; border-radius: 9px; background: rgba(255,255,255,.06); font-size: 11px; color: #94a3b8; border: 1px solid rgba(255,255,255,.06); cursor: pointer; transition: all .25s ease; font-family: inherit; -webkit-appearance: none; appearance: none; text-align: center; }
+  .mock-tab:hover { color: #e2e8f0; }
+  .mock-tab.active { background: rgba(37,99,235,.35); color: #dbeafe; border-color: rgba(37,99,235,.6); }
+  .mock-panes { min-height: 296px; }
+  .mock-pane { display: none; }
+  .mock-pane.active { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; animation: paneIn .45s ease; }
+  @keyframes paneIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .mock-card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.09); border-radius: 16px; padding: 16px; }
+  .mock-card h4 { font-size: 13px; margin-bottom: 14px; color: #94a3b8; font-weight: 600; }
+  .mock-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 12px; color: #e2e8f0; }
+  .mock-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mock-score { color: #34d399; font-weight: 800; }
+  .mock-progress { height: 6px; border-radius: 99px; background: rgba(255,255,255,.1); overflow: hidden; margin: 6px 0 14px; }
+  .mock-progress > div { height: 100%; border-radius: 99px; background: linear-gradient(90deg,#2563eb,#22d3ee); }
+  .mock-status { padding: 4px 9px; border-radius: 7px; font-size: 11px; background: rgba(245,158,11,.18); color: #fbbf24; white-space: nowrap; }
+  .mock-tagchip { flex: none; font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.08); color: #94a3b8; }
+
+  .stats { border-block: 1px solid #e2e8f0; background: rgba(255,255,255,.7); backdrop-filter: blur(6px); }
+  .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 20px; padding: 46px 0; }
+  .stat { text-align: center; }
+  .stat b { display: block; font-size: 36px; font-weight: 900; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 13px; color: #64748b; }
+
+  .marquee { overflow: hidden; background: rgba(255,255,255,.55); border-bottom: 1px solid #e2e8f0; padding: 20px 0 22px; }
+  .marquee-note { text-align: center; font-size: 12.5px; color: #64748b; letter-spacing: .04em; margin-bottom: 14px; }
+  .marquee-clip { -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent); mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent); }
+  .marquee-track { display: flex; width: max-content; animation: marquee 30s linear infinite; will-change: transform; }
+  .marquee-track .dup { display: contents; }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  .m-chip {
+    display: inline-flex; align-items: center; gap: 8px; margin-right: 14px; padding: 8px 16px; border-radius: 999px;
+    border: 1px solid #e2e8f0; background: #fff; font-size: 14px; color: #475569; white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(15,23,42,.04);
+  }
+  .m-chip i { width: 7px; height: 7px; border-radius: 50%; background: linear-gradient(135deg, #2563eb, #22d3ee); flex: none; }
+  @keyframes marquee { to { transform: translateX(-50%); } }
+
+  .grid { display: grid; gap: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; transition: all .3s ease; position: relative; overflow: hidden;
+    box-shadow: 0 4px 18px rgba(15,23,42,.04);
+  }
+  .card::before {
+    content: ""; position: absolute; top: 0; left: 24px; right: 24px; height: 3px; border-radius: 0 0 6px 6px;
+    background: linear-gradient(90deg, #2563eb, #0891b2, #7c3aed);
+    opacity: 0; transition: opacity .3s ease;
+  }
+  .card:hover { transform: translateY(-4px); border-color: #bfdbfe; box-shadow: 0 16px 36px rgba(37,99,235,.1); }
+  .card:hover::before { opacity: 1; }
+  .card-icon {
+    width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; font-size: 26px;
+    background: linear-gradient(135deg, #eff6ff, #e0f2fe);
+    border: 1px solid #bfdbfe; margin-bottom: 18px;
+  }
+  .card-icon.i2 { background: linear-gradient(135deg, #ecfeff, #cffafe); border-color: #a5f3fc; }
+  .card-icon.i3 { background: linear-gradient(135deg, #f5f3ff, #ede9fe); border-color: #ddd6fe; }
+  .card-icon.i4 { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-color: #a7f3d0; }
+  .card-icon.i5 { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: #fde68a; }
+  .card-icon.i6 { background: linear-gradient(135deg, #fff1f2, #ffe4e6); border-color: #fecdd3; }
+  .card h3 { font-size: 19px; margin-bottom: 10px; color: #0f172a; }
+  .card p { color: #5b6b84; font-size: 15px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 16px; }
+  .tag { padding: 5px 10px; border-radius: 999px; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+
+  /* Bento features */
+  .bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 20px; }
+  .bento .card { display: flex; flex-direction: column; }
+  .s4 { grid-column: span 4; }
+  .s2 { grid-column: span 2; }
+  .s6 { grid-column: span 6; }
+  .tvis { margin: 4px 0 2px; }
+  .chip-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+  .p-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 9px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12.5px; color: #475569; }
+  .p-chip b { color: #1d4ed8; font-weight: 700; }
+  .mini-score { display: flex; align-items: center; gap: 20px; }
+  .mini-score .big { font-size: 46px; font-weight: 900; line-height: 1; }
+  .mini-score small { display: block; font-size: 11.5px; color: #94a3b8; font-weight: 500; margin-top: 4px; letter-spacing: .02em; }
+  .bars { flex: 1; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #64748b; }
+  .bar span { width: 88px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .track { flex: 1; height: 6px; border-radius: 99px; background: #eef2f7; overflow: hidden; }
+  .bar .track i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #2563eb, #22d3ee); }
+  .file-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+  .file-chip { display: inline-flex; align-items: center; gap: 8px; padding: 9px 13px; border-radius: 11px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 12.5px; color: #475569; }
+  .file-chip .ext { font-weight: 800; color: #1d4ed8; }
+  .msg-snippet { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #2563eb; border-radius: 12px; padding: 12px 14px; font-size: 13px; color: #475569; line-height: 1.7; }
+  .stage-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stage { font-size: 11.5px; padding: 5px 10px; border-radius: 8px; color: #94a3b8; background: #f8fafc; border: 1px dashed #cbd5e1; }
+  .stage.on { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; font-weight: 650; border-style: solid; }
+  .dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .dim { font-size: 11.5px; padding: 7px 8px; text-align: center; border-radius: 9px; background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; }
+  .dim b { color: #10b981; margin-left: 4px; }
+
+  .chat-tile { display: grid; grid-template-columns: 1.1fr 1fr; gap: 34px; align-items: center; }
+  .chat-window { background: #0f172a; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 16px 36px rgba(15,23,42,.18); }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 12.5px; color: #94a3b8; }
+  .chat-head .dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
+  .chat-log { display: flex; flex-direction: column; gap: 10px; padding: 16px; min-height: 196px; }
+  .msg { max-width: 86%; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.6; }
+  .msg.user { align-self: flex-end; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.ai { align-self: flex-start; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); color: #e2e8f0; border-bottom-left-radius: 4px; }
+  .msg.typing { background: rgba(255,255,255,.06); padding: 13px 16px; }
+  .typing-i { display: inline-flex; gap: 4px; }
+  .typing-i i { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; animation: blink 1.2s infinite; }
+  .typing-i i:nth-child(2) { animation-delay: .2s; }
+  .typing-i i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  .flow-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .flow-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 24px; position: relative;
+    transition: all .25s; box-shadow: 0 4px 16px rgba(15,23,42,.04);
+  }
+  .flow-card:hover { transform: translateY(-4px); border-color: #bfdbfe; box-shadow: 0 14px 32px rgba(37,99,235,.1); }
+  .flow-card:not(:nth-child(4n))::after { content: "→"; position: absolute; right: -14px; top: 34px; color: #94a3b8; font-size: 18px; font-weight: 700; }
+  .flow-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; border-radius: 13px; font-size: 15px; font-weight: 850; color: #fff;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8); margin-bottom: 14px;
+  }
+  .flow-card:nth-child(2n) .flow-num { background: linear-gradient(135deg, #0891b2, #0e7490); }
+  .flow-card:nth-child(3n) .flow-num { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+  .flow-card h4 { font-size: 16px; margin-bottom: 6px; color: #0f172a; }
+  .flow-card p { font-size: 13px; color: #64748b; }
+
+  .cta-strip {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+    padding: 30px 38px; border-radius: 24px;
+    background: linear-gradient(135deg, #eff6ff, #f0f9ff 50%, #f5f3ff);
+    border: 1px solid #bfdbfe; box-shadow: 0 14px 36px rgba(37,99,235,.08);
+  }
+  .cta-strip h3 { font-size: 21px; margin-bottom: 4px; color: #0f172a; }
+  .cta-strip p { color: #64748b; font-size: 14px; }
+  .cta-strip-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+  .mini-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
+  .mini-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 24px; box-shadow: 0 4px 16px rgba(15,23,42,.04); transition: all .25s ease; }
+  .mini-card:hover { transform: translateY(-3px); border-color: #bfdbfe; box-shadow: 0 12px 28px rgba(37,99,235,.08); }
+  .pain-icon { font-size: 30px; margin-bottom: 12px; }
+  .mini-card h4 { font-size: 17px; margin-bottom: 8px; color: #0f172a; }
+  .mini-card p { color: #64748b; font-size: 14px; }
+  .value-card h4 { font-size: 18px; margin-bottom: 10px; }
+  .industry-card { text-align: center; }
+  .industry-card .icon { font-size: 34px; margin-bottom: 10px; }
+  .industry-card h4 { font-size: 17px; margin-bottom: 6px; }
+  .industry-card p { font-size: 13px; }
+
+  .trust-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 18px; }
+  .trust-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 26px; text-align: center; box-shadow: 0 4px 16px rgba(15,23,42,.04); transition: all .25s ease; }
+  .trust-card:hover { transform: translateY(-3px); border-color: #bfdbfe; box-shadow: 0 12px 28px rgba(37,99,235,.08); }
+  .trust-card .metric { font-size: 30px; font-weight: 900; margin-bottom: 8px; }
+  .trust-card p { font-size: 13px; color: #64748b; }
+
+  .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .quick-panel { padding: 30px; background: #fff; border: 1px solid #e2e8f0; border-radius: 22px; box-shadow: 0 6px 24px rgba(15,23,42,.05); }
+  .quick-panel h3 { font-size: 21px; margin-bottom: 12px; color: #0f172a; }
+  .quick-panel p { color: #64748b; font-size: 15px; margin-bottom: 20px; }
+  .code-block {
+    position: relative;
+    background: #0f172a; border: 1px solid #1e293b; border-radius: 16px;
+    padding: 22px; font-family: "Cascadia Code", Consolas, monospace; font-size: 14px; line-height: 1.8; color: #cbd5e1;
+  }
+  .code-block pre { margin: 0; overflow-x: auto; }
+  .code-block code { font: inherit; white-space: pre; }
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px; z-index: 2;
+    font: inherit; font-size: 12px; padding: 5px 11px; border-radius: 9px; cursor: pointer;
+    background: rgba(255,255,255,.1); color: #cbd5e1; border: 1px solid rgba(255,255,255,.15);
+    transition: all .2s ease;
+  }
+  .copy-btn:hover { background: rgba(255,255,255,.18); }
+  .copy-btn.ok { background: rgba(16,185,129,.22); color: #34d399; border-color: rgba(16,185,129,.4); }
+  .cmt { color: #64748b; }
+  .cmd { color: #93c5fd; }
+
+  .pricing-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 22px; }
+  .pricing-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 24px; padding: 32px;
+    display: flex; flex-direction: column; position: relative; box-shadow: 0 6px 24px rgba(15,23,42,.05);
+    transition: all .3s ease;
+  }
+  .pricing-card.hot { border-color: #2563eb; box-shadow: 0 24px 60px rgba(37,99,235,.16); }
+  .pricing-card.hot::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 5px; border-radius: 24px 24px 0 0;
+    background: linear-gradient(90deg, #2563eb, #0891b2);
+  }
+  .hotbadge { position: absolute; top: -15px; left: 30px; background: linear-gradient(135deg,#2563eb,#0891b2); color: #fff; font-size: 12px; font-weight: 750; padding: 6px 14px; border-radius: 999px; }
+  .pricing-card h3 { font-size: 21px; margin-bottom: 6px; color: #0f172a; }
+  .price { font-size: 34px; font-weight: 900; margin-bottom: 20px; letter-spacing: -.02em; color: #0f172a; }
+  .price small { font-size: 14px; color: #64748b; font-weight: 400; }
+  .pricing-card ul { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; flex: 1; }
+  .pricing-card ul li { display: flex; gap: 10px; font-size: 14px; color: #475569; }
+  .pricing-card ul li::before { content: "✓"; color: #10b981; font-weight: 800; }
+  .pricing-card .btn { justify-content: center; }
+
+  .faq-wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .faq-item { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 22px 26px; box-shadow: 0 4px 16px rgba(15,23,42,.04); transition: border-color .25s ease; }
+  .faq-item[open] { border-color: #bfdbfe; }
+  .faq-item details { cursor: pointer; }
+  .faq-item summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 17px; font-weight: 650; list-style: none; color: #0f172a; }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after { content: "+"; font-size: 22px; font-weight: 500; color: #94a3b8; flex: none; transition: transform .3s ease, color .3s ease; }
+  .faq-item details[open] summary::after { transform: rotate(45deg); color: #2563eb; }
+  .faq-item p { color: #5b6b84; font-size: 15px; margin-top: 12px; }
+
+  .cta-box {
+    border-radius: 30px; border: 1px solid #2563eb;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8 55%, #0891b2);
+    background-size: 160% 160%; background-position: 0% 0%;
+    animation: ctaShift 9s ease-in-out infinite alternate;
+    padding: 72px; text-align: center; position: relative; overflow: hidden;
+    box-shadow: 0 30px 70px rgba(37,99,235,.25);
+  }
+  @keyframes ctaShift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+  .cta-box::before {
+    content: ""; position: absolute; width: 340px; height: 340px; border-radius: 50%; top: -180px; right: -80px;
+    background: radial-gradient(circle, rgba(255,255,255,.18), transparent 70%);
+  }
+  .cta-box::after {
+    content: ""; position: absolute; width: 300px; height: 300px; border-radius: 50%; bottom: -180px; left: -60px;
+    background: radial-gradient(circle, rgba(34,211,238,.2), transparent 70%);
+  }
+  .cta-box h2 { font-size: clamp(30px,4vw,44px); font-weight: 900; margin-bottom: 16px; color: #fff; position: relative; z-index: 1; }
+  .cta-box p { color: rgba(255,255,255,.85); font-size: 18px; max-width: 660px; margin: 0 auto 32px; position: relative; z-index: 1; }
+  .cta-box .btn-ghost { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.35); color: #fff; }
+  .cta-box .btn-ghost:hover { background: rgba(255,255,255,.2); }
+
+  footer { background: #0f172a; padding: 46px 0 26px; color: #94a3b8; font-size: 14px; }
+  .footer-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; }
+  .footer-brand { display: flex; align-items: center; gap: 12px; }
+  .footer-brand strong { display: block; color: #e2e8f0; font-size: 15px; }
+  .footer-brand small { color: #64748b; font-size: 12.5px; }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 6px 22px; }
+  .footer-links a { color: #94a3b8; font-size: 14px; padding: 4px 0; transition: color .2s ease; }
+  .footer-links a:hover { color: #fff; }
+  .footer-bottom {
+    margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(148,163,184,.18);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+    color: #64748b; font-size: 13px;
+  }
+
+  .totop {
+    position: fixed; right: 22px; bottom: 22px; z-index: 90;
+    width: 44px; height: 44px; border-radius: 13px; border: 1px solid transparent; cursor: pointer;
+    background: linear-gradient(135deg, #2563eb, #0891b2); color: #fff; font-size: 17px;
+    box-shadow: 0 12px 28px rgba(37,99,235,.3);
+    opacity: 0; transform: translateY(12px); pointer-events: none; transition: all .3s ease;
+  }
+  .totop.show { opacity: 1; transform: none; pointer-events: auto; }
+  .totop:hover { transform: translateY(-2px); }
+
+  /* 移动端底部常驻 CTA：滚动离开首屏后出现，进入底部转化区自动隐藏 */
+  .mcta {
+    position: fixed; left: 14px; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    z-index: 96; display: none;
+    align-items: center; justify-content: center; gap: 8px;
+    padding: 15px 18px; border-radius: 16px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff;
+    font-size: 15px; font-weight: 700; letter-spacing: .01em;
+    box-shadow: 0 14px 34px rgba(37,99,235,.36); border: 1px solid rgba(255,255,255,.2);
+  }
+  @media (max-width: 768px) {
+    .mcta {
+      display: flex; opacity: 0; transform: translateY(16px);
+      visibility: hidden; pointer-events: none;
+      transition: opacity .3s var(--ease), transform .3s var(--ease), visibility .3s;
+    }
+    .mcta.show { opacity: 1; transform: none; visibility: visible; pointer-events: auto; }
+    body.mcta-on .totop { bottom: 88px; }
+  }
+
+  /* 入场动画：渐进增强。无 JS 时内容始终可见；有 JS 时（html.js）先隐藏，
+     由 IntersectionObserver 在进入视口后播放。--d（延迟）由 JS 以有限错峰赋值，安全回退 0ms。 */
+  .js .reveal { opacity: 0; }
+  .js .reveal.in-view { animation: rise .8s var(--ease) both; animation-delay: var(--d, 0ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1220; --bg2: #0e1626; --card: #141d30; --card2: #1a2438;
+      --border: #22304a; --border2: #2f3f5c; --text: #e6edf7; --dim: #93a3bd;
+    }
+    body { color: var(--text); }
+    ::selection { background: rgba(96,165,250,.28); }
+    :focus-visible { outline-color: rgba(96,165,250,.5); }
+    .grad { background: linear-gradient(120deg, #60a5fa, #22d3ee, #a78bfa); -webkit-background-clip: text; background-clip: text; }
+    .navbar { background: rgba(11,16,28,.82); border-bottom-color: rgba(148,163,184,.1); }
+    .navbar.scrolled { background: rgba(11,16,28,.94); }
+    .logo, .hero h1, .section-title, .card h3, .flow-card h4, .mini-card h4, .cta-strip h3,
+    .quick-panel h3, .pricing-card h3, .price, .faq-item summary { color: var(--text); }
+    .nav-links { color: #94a3b8; }
+    .nav-links a:hover { color: #fff; }
+    .nav-links a.active { color: #7db4ff; }
+    .hamburger { background: var(--card); border-color: var(--border2); color: var(--text); }
+    .mobile-menu { background: rgba(13,18,32,.98); }
+    .mobile-menu a { color: #94a3b8; }
+    .mobile-menu a:hover { background: var(--card2); color: #fff; }
+    .btn-ghost { background: #16202f; border-color: #33415c; color: var(--text); }
+    .btn-ghost:hover { background: #1c2938; }
+    .hero .lead { color: #a8b6cd; }
+    .pill { background: var(--card); border-color: var(--border); color: #94a3b8; }
+    .pill:hover { border-color: rgba(59,130,246,.55); color: #7db4ff; background: rgba(37,99,235,.14); }
+    .badge { background: rgba(37,99,235,.16); border-color: rgba(59,130,246,.42); color: #7db4ff; }
+    .hero-meta { color: #94a3b8; }
+    .dashboard-mock { background: linear-gradient(180deg, #111a2e, #16233c); border-color: rgba(255,255,255,.18); }
+    .float-chip { background: rgba(20,29,48,.92); border-color: rgba(34,48,74,.95); color: var(--text); }
+    .float-chip b { color: #7db4ff; }
+    .stats { background: rgba(13,18,32,.6); border-color: var(--border); }
+    .stat span { color: #94a3b8; }
+    .marquee { background: rgba(13,18,32,.55); border-bottom-color: var(--border); }
+    .marquee-note { color: #8fa0bb; }
+    .m-chip { background: var(--card); border-color: var(--border); color: #94a3b8; }
+    .section.tint { background: rgba(148,163,184,.07); border-block-color: rgba(148,163,184,.14); }
+    .card { box-shadow: 0 4px 18px rgba(0,0,0,.25); }
+    .card:hover { border-color: #3b82f6; box-shadow: 0 16px 36px rgba(0,0,0,.35); }
+    .card-icon { background: linear-gradient(135deg, #1a2c4e, #1f3358); border-color: #2e4a7d; }
+    .card-icon.i2 { background: linear-gradient(135deg, #123a42, #164851); border-color: #1f627a; }
+    .card-icon.i3 { background: linear-gradient(135deg, #2a2150, #352a63); border-color: #4c3f8f; }
+    .card-icon.i4 { background: linear-gradient(135deg, #123a28, #174733); border-color: #1f6a49; }
+    .card-icon.i5 { background: linear-gradient(135deg, #3d3016, #4a3b1c); border-color: #6b5427; }
+    .card-icon.i6 { background: linear-gradient(135deg, #42201f, #4f2a28); border-color: #6e3b3d; }
+    .card p, .faq-item p { color: #9fb0c9; }
+    .tag { background: #1a2438; border-color: var(--border); color: #94a3b8; }
+    .p-chip, .file-chip { background: #16203a; border-color: var(--border); color: #94a3b8; }
+    .p-chip b, .file-chip .ext { color: #7db4ff; }
+    .bar { color: #94a3b8; }
+    .bar .track { background: #1c283c; }
+    .msg-snippet { background: #16203a; border-color: var(--border); color: #a8b6cd; }
+    .stage { color: #8fa0bb; background: #162033; border-color: #3a4a68; }
+    .stage.on { color: #7db4ff; background: rgba(37,99,235,.18); border-color: rgba(59,130,246,.5); }
+    .dim { background: #162033; border-color: var(--border); color: #94a3b8; }
+    .dim b { color: #34d399; }
+    .flow-card { background: var(--card); border-color: var(--border); }
+    .flow-card:hover { border-color: #3b82f6; }
+    .flow-card p, .mini-card p, .trust-card p, .cta-strip p, .quick-panel p,
+    .pricing-card ul li, .price small { color: #94a3b8; }
+    .cta-strip { background: linear-gradient(135deg, #16233a, #14283c 50%, #1d1b33); border-color: #2e4266; box-shadow: 0 14px 36px rgba(0,0,0,.3); }
+    .mini-card, .trust-card { background: var(--card); border-color: var(--border); }
+    .mini-card:hover, .trust-card:hover { border-color: #3b82f6; }
+    .quick-panel { background: var(--card); border-color: var(--border); }
+    .pricing-card { background: var(--card); border-color: var(--border); }
+    .pricing-card.hot { border-color: #3b82f6; box-shadow: 0 24px 60px rgba(37,99,235,.28); }
+    .faq-item { background: var(--card); border-color: var(--border); }
+    .faq-item[open] { border-color: #3b82f6; }
+    .faq-item details[open] summary::after { color: #7db4ff; }
+    .code-block, .chat-window { border-color: #2a3a58; }
+  }
+  @media (max-width: 1024px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 44px; }
+    .dashboard-mock { transform: none; }
+    .stats-grid { grid-template-columns: repeat(3,1fr); }
+    .bento { grid-template-columns: repeat(2,1fr); }
+    .bento .s2, .bento .s3 { grid-column: span 1; }
+    .bento .s4, .bento .s6 { grid-column: span 2; }
+    .mini-grid, .trust-grid { grid-template-columns: repeat(2,1fr); }
+    .flow-grid { grid-template-columns: repeat(2,1fr); }
+    .flow-card::after { display: none; }
+    .pricing-grid { grid-template-columns: repeat(2,1fr); }
+    .quick-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 768px) {
+    .nav-links, .nav-cta { display: none; }
+    .hamburger { display: inline-flex; }
+    .section { padding: 56px 0; }
+    .section-head { margin-bottom: 36px; }
+    .card { padding: 22px; }
+    .quick-panel { padding: 22px; }
+    .bento, .g3, .mini-grid, .trust-grid, .flow-grid, .pricing-grid { grid-template-columns: 1fr; }
+    .bento .s2, .bento .s3, .bento .s4, .bento .s6 { grid-column: span 1; }
+    .stats-grid { grid-template-columns: repeat(2,1fr); }
+    .cta-strip { flex-direction: column; align-items: flex-start; padding: 26px 24px; }
+    .cta-box { padding: 44px 24px; }
+    .hero { min-height: auto; padding: 120px 0 60px; }
+    .hero h1 { font-size: 38px; }
+    .float-chip { font-size: 12px; padding: 8px 12px; }
+    .chip-a { top: -12px; right: 4px; }
+    .chip-b { bottom: -12px; left: 2px; }
+    .faq-item summary { font-size: 16px; }
+    .chat-tile { grid-template-columns: 1fr; }
+    .mock-pane.active { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 480px) {
+    .code-block { padding: 18px; font-size: 13px; }
+    .mock-tab { padding: 6px 9px; font-size: 10.5px; }
+    .mini-score { flex-direction: column; align-items: flex-start; gap: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
+    .js .reveal { opacity: 1; }
+    .reveal, .marquee-track, .cta-box { animation: none; }
+    .marquee-track .dup { display: none; }
+  }
+  @media print {
+    .js .reveal { opacity: 1; }
+    .reveal, .marquee-track, .cta-box { animation: none; }
+    .navbar { position: static; }
+    .mobile-menu, .totop, .progress, .float-chip, .copy-btn, .hamburger, .mcta { display: none !important; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#problem">跳到主要内容</a>
+
+<div class="progress" id="progressBar" aria-hidden="true"></div>
+
+<nav class="navbar" id="navbar" aria-label="主导航">
+  <div class="nav-inner">
+    <a class="logo" href="#top"><span class="logo-mark" aria-hidden="true">J</span><span>JobAgent</span></a>
+    <div class="nav-links">
+      <a href="#problem">为什么需要</a>
+      <a href="#features">核心能力</a>
+      <a href="#workflow">使用流程</a>
+      <a href="#value">产品价值</a>
+      <a href="#pricing">价格方案</a>
+    </div>
+    <a class="btn btn-primary nav-cta" href="#start">立即体验</a>
+    <button class="hamburger" id="menuBtn" aria-label="打开菜单" aria-expanded="false" aria-controls="mobileMenu">☰</button>
+  </div>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#problem">为什么需要</a>
+    <a href="#features">核心能力</a>
+    <a href="#workflow">使用流程</a>
+    <a href="#value">产品价值</a>
+    <a href="#pricing">价格方案</a>
+    <a href="#faq">常见问题</a>
+    <a href="#start">立即体验</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="container hero-grid">
+    <div>
+      <span class="badge">✦ AI 求职助手 · 从搜岗到 Offer 一站式搞定</span>
+      <h1>把找工作变成<br/><span class="grad rotator" id="rotator" data-words='["一场有准备的战役","一次有数据的投递","一场有策略的面试","一个更理性的选择"]' aria-hidden="true">一场有准备的战役</span><span class="sr-only">把找工作变成一场有准备的战役</span></h1>
+      <p class="lead">JobAgent 自动聚合 8 大招聘平台，用 AI 帮你筛选最值得投的岗位，一键定制简历和 HR 消息，并管理投递、模拟面试、评估 Offer。</p>
+      <div class="pills">
+        <span class="pill">🔍 多平台聚合</span>
+        <span class="pill">🧠 AI 匹配</span>
+        <span class="pill">📝 定制简历</span>
+        <span class="pill">🎤 模拟面试</span>
+        <span class="pill">💼 Offer 评估</span>
+      </div>
+      <div class="hero-actions">
+        <a class="btn btn-primary btn-lg" href="#start">立即免费体验</a>
+        <a class="btn btn-ghost btn-lg" href="#features">查看核心能力</a>
+      </div>
+      <div class="hero-meta">
+        <span><i aria-hidden="true"></i> 8 个招聘平台</span>
+        <span><i aria-hidden="true"></i> 自动化 80% 求职流程</span>
+        <span><i aria-hidden="true"></i> 减少 90% 人工筛选</span>
+      </div>
+    </div>
+    <div class="mock-stage">
+      <div class="dashboard-mock">
+        <div class="mock-bar">
+          <span class="mock-dot" style="background:#f87171"></span>
+          <span class="mock-dot" style="background:#fbbf24"></span>
+          <span class="mock-dot" style="background:#34d399"></span>
+          <span class="mock-url" id="mockUrl">JobAgent · 求职工作台</span>
+        </div>
+        <div class="mock-tabs" role="tablist" aria-label="工作台演示">
+          <button class="mock-tab active" id="tabMatch" type="button" role="tab" aria-selected="true" aria-controls="paneMatch">🎯 智能匹配</button>
+          <button class="mock-tab" id="tabTrack" type="button" role="tab" aria-selected="false" aria-controls="paneTrack" tabindex="-1">📅 投递追踪</button>
+          <button class="mock-tab" id="tabInterview" type="button" role="tab" aria-selected="false" aria-controls="paneInterview" tabindex="-1">🎤 模拟面试</button>
+        </div>
+        <div class="mock-panes">
+          <div class="mock-pane active" id="paneMatch" role="tabpanel" aria-labelledby="tabMatch">
+            <div class="mock-card">
+              <h4>为你精选的岗位</h4>
+              <div class="mock-row"><span>AMR 工程师 · 南通</span><b class="mock-score">94</b></div>
+              <div class="mock-progress"><div style="width:94%"></div></div>
+              <div class="mock-row"><span>自动化设备工程师 · 常州</span><b class="mock-score">88</b></div>
+              <div class="mock-progress"><div style="width:88%"></div></div>
+              <div class="mock-row"><span>设备工程师 · 无锡</span><b class="mock-score">82</b></div>
+              <div class="mock-progress"><div style="width:82%"></div></div>
+            </div>
+            <div class="mock-card">
+              <h4>投递进度一目了然</h4>
+              <div class="mock-row"><span>已投递</span><span class="mock-status">4</span></div>
+              <div class="mock-row"><span>约面</span><span class="mock-status">2</span></div>
+              <div class="mock-row"><span>Offer</span><span class="mock-status">1</span></div>
+              <div style="margin-top:20px" class="mock-row"><span>定制简历</span><b>23 份</b></div>
+              <div style="margin-top:8px" class="mock-row"><span>模拟面试</span><b>6 场</b></div>
+            </div>
+          </div>
+          <div class="mock-pane" id="paneTrack" role="tabpanel" aria-labelledby="tabTrack">
+            <div class="mock-card">
+              <h4>投递漏斗 · 一屏掌握</h4>
+              <div class="mock-row"><span>已投递 → 已读</span><b class="mock-score">4</b></div>
+              <div class="mock-progress"><div style="width:80%"></div></div>
+              <div class="mock-row"><span>已读 → 约面</span><b class="mock-score">2</b></div>
+              <div class="mock-progress"><div style="width:50%"></div></div>
+              <div class="mock-row"><span>约面 → Offer</span><b class="mock-score">1</b></div>
+              <div class="mock-progress"><div style="width:25%"></div></div>
+            </div>
+            <div class="mock-card">
+              <h4>提醒 · 不再错过节点</h4>
+              <div class="mock-row"><span>常州 · 设备工程师</span><b>等待答复 3 天</b></div>
+              <div class="mock-row"><span>南通 · AMR 工程师</span><b>明日 15:00 一面</b></div>
+              <div class="mock-row"><span>无锡 · 工艺工程师</span><b>待跟进</b></div>
+              <div style="margin-top:16px;display:flex;gap:6px;flex-wrap:wrap"><span class="mock-tagchip">超期自动提醒</span><span class="mock-tagchip">手动补录</span></div>
+            </div>
+          </div>
+          <div class="mock-pane" id="paneInterview" role="tabpanel" aria-labelledby="tabInterview">
+            <div class="mock-card">
+              <h4>为你预测的面试题</h4>
+              <div class="mock-row"><span>如何设计 AMR 调度策略？</span><span class="mock-tagchip">技术深挖</span></div>
+              <div class="mock-row"><span>讲讲最有挑战的一次交付</span><span class="mock-tagchip">项目复盘</span></div>
+              <div class="mock-row"><span>为什么选择我们公司？</span><span class="mock-tagchip">行为动机</span></div>
+              <div style="margin-top:14px" class="mock-row"><span>支持文字 / 实时语音</span><b class="mock-score">6 场已练</b></div>
+            </div>
+            <div class="mock-card">
+              <h4>5 维面试评估</h4>
+              <div class="mock-row"><span>技术深度</span><b class="mock-score">88</b></div>
+              <div class="mock-progress"><div style="width:88%"></div></div>
+              <div class="mock-row"><span>表达逻辑</span><b class="mock-score">92</b></div>
+              <div class="mock-progress"><div style="width:92%"></div></div>
+              <div class="mock-row"><span>岗位匹配</span><b class="mock-score">94</b></div>
+              <div class="mock-progress"><div style="width:94%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="float-chip chip-a"><span class="dot"></span>今日新增 <b>12</b> 个匹配岗位</div>
+      <div class="float-chip chip-b">Offer 评估 · 综合 <b>8.9</b>/10</div>
+    </div>
+  </div>
+</header>
+
+<section class="stats" aria-label="产品数据">
+  <div class="container stats-grid">
+    <div class="stat"><b class="grad count" data-count="8" aria-label="8">8</b><span>招聘平台覆盖</span></div>
+    <div class="stat"><b class="grad count" data-count="80" data-suffix="%" aria-label="80%">80%</b><span>流程自动化</span></div>
+    <div class="stat"><b class="grad count" data-count="90" data-suffix="%" aria-label="90%">90%</b><span>减少人工筛选</span></div>
+    <div class="stat"><b class="grad count" data-count="7" aria-label="7">7</b><span>阶段投递追踪</span></div>
+    <div class="stat"><b class="grad count" data-count="10" aria-label="10">10</b><span>功能工作台</span></div>
+    <div class="stat"><b class="grad count" data-count="1300" data-suffix="+" aria-label="1300+">1300+</b><span>自动化测试保障</span></div>
+  </div>
+</section>
+
+<div class="marquee" role="region" aria-label="覆盖的招聘渠道">
+  <div class="marquee-note">覆盖 8 大招聘渠道 · 跨平台去重 · 一手信息</div>
+  <div class="marquee-clip">
+  <div class="marquee-track">
+    <span class="m-chip"><i></i>BOSS直聘</span>
+    <span class="m-chip"><i></i>猎聘</span>
+    <span class="m-chip"><i></i>智联招聘</span>
+    <span class="m-chip"><i></i>腾讯</span>
+    <span class="m-chip"><i></i>网易</span>
+    <span class="m-chip"><i></i>比亚迪</span>
+    <span class="m-chip"><i></i>北方华创</span>
+    <span class="m-chip"><i></i>长飞光纤</span>
+    <span class="m-chip"><i></i>8 大渠道</span>
+    <span class="dup" aria-hidden="true">
+      <span class="m-chip"><i></i>BOSS直聘</span>
+      <span class="m-chip"><i></i>猎聘</span>
+      <span class="m-chip"><i></i>智联招聘</span>
+      <span class="m-chip"><i></i>腾讯</span>
+      <span class="m-chip"><i></i>网易</span>
+      <span class="m-chip"><i></i>比亚迪</span>
+      <span class="m-chip"><i></i>北方华创</span>
+      <span class="m-chip"><i></i>长飞光纤</span>
+      <span class="m-chip"><i></i>8 大渠道</span>
+    </span>
+  </div>
+  </div>
+</div>
+
+<section class="section" id="problem">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">为什么需要</span>
+      <h2 class="section-title">求职最耗时的 4 件事，<br/><span class="grad">JobAgent 替你做了</span></h2>
+      <p class="section-desc">不是帮你看更多岗位，而是帮你把“找岗位”变成“选岗位”，把“写简历”变成“确认简历”，把“凭感觉投”变成“有策略地投”。</p>
+    </div>
+    <div class="mini-grid">
+      <div class="mini-card reveal"><div class="pain-icon">🔁</div><h4>重复岗位刷到手软</h4><p>8 个平台来回切换，同一岗位重复出现。JobAgent 聚合搜索并自动去重，让你只看有效机会。</p></div>
+      <div class="mini-card reveal"><div class="pain-icon">📄</div><h4>简历千篇一律没回音</h4><p>用同一份简历投所有岗位，很难打动 HR。JobAgent 按 JD 生成定制简历，让每一投都有针对性。</p></div>
+      <div class="mini-card reveal"><div class="pain-icon">📌</div><h4>投了哪些全忘了</h4><p>投递记录散落、跟进时机错过。JobAgent 用 7 阶段状态机和提醒帮你盯住每个机会。</p></div>
+      <div class="mini-card reveal"><div class="pain-icon">🎤</div><h4>面试没底、Offer 不会选</h4><p>按岗位预测面试题，陪你模拟面试；用 8 维评估看清 Offer，选择时更理性。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section pt24 tint" id="features">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">核心能力</span>
+      <h2 class="section-title">一套产品，<br/>覆盖求职全流程</h2>
+      <p class="section-desc">从机会发现、材料准备到面试和 Offer 决策，JobAgent 把每个环节都做成可执行、可追踪、可复用的工具。</p>
+    </div>
+    <div class="bento">
+      <div class="card reveal s4">
+        <div class="card-icon">🔍</div>
+        <h3>一次搜遍 8 大招聘渠道</h3>
+        <p>覆盖 BOSS直聘、猎聘、智联、腾讯、网易、比亚迪、北方华创、长飞光纤等平台，跨平台去重，重复岗位自动合并。</p>
+        <div class="tvis chip-cloud" aria-hidden="true">
+          <span class="p-chip">BOSS直聘</span><span class="p-chip">猎聘</span><span class="p-chip">智联</span><span class="p-chip">腾讯</span><span class="p-chip">网易</span><span class="p-chip">比亚迪</span><span class="p-chip">北方华创</span><span class="p-chip">长飞光纤</span>
+        </div>
+        <div class="tags"><span class="tag">聚合搜索</span><span class="tag">自动去重</span><span class="tag">多平台</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i2">🧠</div>
+        <h3>AI 告诉你「最该投哪个」</h3>
+        <p>基于简历和岗位 JD 做深度匹配，输出 0-100 分和匹配理由，把“大海捞针”变成“按优先级投递”。</p>
+        <div class="tvis mini-score" aria-hidden="true">
+          <div><span class="big grad">94</span><small>岗位匹配分</small></div>
+          <div class="bars">
+            <div class="bar"><span>AMR 工程师</span><div class="track"><i style="width:94%"></i></div></div>
+            <div class="bar"><span>设备工程师</span><div class="track"><i style="width:88%"></i></div></div>
+            <div class="bar"><span>工艺工程师</span><div class="track"><i style="width:79%"></i></div></div>
+          </div>
+        </div>
+        <div class="tags"><span class="tag">匹配打分</span><span class="tag">理由透明</span><span class="tag">人工可控</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i3">📝</div>
+        <h3>一键生成专属定制简历</h3>
+        <p>每个岗位生成一份针对性简历，自动保留真实经历，避免编造。</p>
+        <div class="tvis file-chips" aria-hidden="true">
+          <span class="file-chip">📄 <span class="ext">Word</span></span>
+          <span class="file-chip">🗒️ <span class="ext">Markdown</span></span>
+        </div>
+        <div class="tags"><span class="tag">自动生成</span><span class="tag">双格式</span><span class="tag">事实校验</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i4">💬</div>
+        <h3>HR 消息也帮你写好</h3>
+        <p>生成 150-200 字 HR 打招呼消息，围绕岗位关键词和亮点，让第一次沟通更有针对性。</p>
+        <div class="tvis msg-snippet" aria-hidden="true">您好，我对贵司的 AMR 工程师岗位非常感兴趣，我近 3 年负责过 2 类 AMR 调度项目…</div>
+        <div class="tags"><span class="tag">打招呼</span><span class="tag">个性化</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i5">📅</div>
+        <h3>投递追踪不放过任何机会</h3>
+        <p>7 阶段状态机管理投递，支持手动补录和超期提醒。</p>
+        <div class="tvis stage-strip" aria-hidden="true">
+          <span class="stage on">已投递</span><span class="stage on">已读</span><span class="stage on">约面</span><span class="stage">一面</span><span class="stage">二面</span><span class="stage">Offer</span><span class="stage">入职</span>
+        </div>
+        <div class="tags"><span class="tag">状态机</span><span class="tag">时间线</span><span class="tag">自动提醒</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i6">🎤</div>
+        <h3>模拟面试，上场前先练一遍</h3>
+        <p>根据岗位预测技术题、行为题、项目深挖题，支持文字和实时语音面试。</p>
+        <div class="tvis dim-grid" aria-hidden="true">
+          <span class="dim">技术题 <b>✓</b></span><span class="dim">行为题 <b>✓</b></span><span class="dim">项目深挖 <b>✓</b></span><span class="dim">语音面试 <b>✓</b></span>
+        </div>
+        <div class="tags"><span class="tag">题库预测</span><span class="tag">5 维评估</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i2">💼</div>
+        <h3>Offer 评估，告别拍脑袋</h3>
+        <p>从薪资、成长性、稳定性、风险等 8 个维度评估 Offer，并支持多 Offer 横向对比。</p>
+        <div class="tvis dim-grid" aria-hidden="true">
+          <span class="dim">薪资 <b>8.9</b></span><span class="dim">成长 <b>8.4</b></span><span class="dim">稳定 <b>9.1</b></span><span class="dim">风险 <b>7.6</b></span>
+          <span class="dim">团队 <b>8.8</b></span><span class="dim">通勤 <b>7.2</b></span><span class="dim">福利 <b>8.0</b></span><span class="dim">发展 <b>8.6</b></span>
+        </div>
+        <div class="tags"><span class="tag">8 维评估</span><span class="tag">多 Offer 对比</span></div>
+      </div>
+      <div class="card reveal s2">
+        <div class="card-icon i3">💰</div>
+        <h3>薪资谈判，心里有底</h3>
+        <p>结合目标薪资、个人优势和 Offer 条款，生成谈判策略、锚点话术和风险提示。</p>
+        <div class="tvis chip-cloud" aria-hidden="true">
+          <span class="p-chip">🎯 锚点话术</span><span class="p-chip">🪜 让步梯度</span><span class="p-chip">🚧 底线确认</span>
+        </div>
+        <div class="tags"><span class="tag">谈判策略</span><span class="tag">风险提示</span></div>
+      </div>
+      <div class="card reveal s6">
+        <div class="chat-tile">
+          <div>
+            <div class="card-icon i4">🗣️</div>
+            <h3>用聊天指挥你的求职助手</h3>
+            <p>“搜一下常州的自动化岗位”“看看投了哪些”“定制这份简历”——自然语言就能让 AI 调用工具完成操作，不用记命令、不用切界面。</p>
+            <div class="tags"><span class="tag">对话式</span><span class="tag">自动工具调用</span><span class="tag">结果可追溯</span></div>
+          </div>
+          <div class="chat-window" aria-hidden="true">
+            <div class="chat-head"><span class="dot"></span>JobAgent · 对话</div>
+            <div class="chat-log" id="chatLog">
+              <div class="msg user">搜一下常州的自动化岗位</div>
+              <div class="msg ai">找到 26 个岗位，已按匹配度排序：AMR 工程师 94 分 · 南通，设备工程师 88 分 · 常州…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="workflow">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">使用流程</span>
+      <h2 class="section-title">从上传简历到拿下 Offer，<br/><span class="grad">你只需要做关键决策</span></h2>
+      <p class="section-desc">AI 干 80% 的重复工作，你把关 20% 的关键判断。</p>
+    </div>
+    <div class="flow-grid">
+      <div class="flow-card reveal"><span class="flow-num">01</span><h4>上传简历</h4><p>一次配置，确定求职方向与目标岗位。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">02</span><h4>AI 自动搜岗</h4><p>8 大渠道并发搜索，跨平台去重。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">03</span><h4>你标记意向</h4><p>🌟 想投 / ❌ 不合适，决策权始终在你。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">04</span><h4>AI 精排匹配</h4><p>0-100 分匹配评分，匹配理由透明。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">05</span><h4>生成定制材料</h4><p>简历 + HR 消息，审核确认后归档。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">06</span><h4>投递与追踪</h4><p>7 阶段状态机，超期自动提醒。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">07</span><h4>模拟面试</h4><p>提前练习，生成 5 维面试评估。</p></div>
+      <div class="flow-card reveal"><span class="flow-num">08</span><h4>Offer 决策</h4><p>8 维评估 + 薪资谈判策略，理性选择。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section pt0">
+  <div class="container">
+    <div class="cta-strip reveal">
+      <div>
+        <h3>把重复劳动交给 AI，把时间留给面试</h3>
+        <p>5 分钟完成配置，开始你的第一轮智能搜岗。</p>
+      </div>
+      <div class="cta-strip-actions">
+        <a class="btn btn-primary" href="#start">立即免费体验</a>
+        <a class="btn btn-ghost" href="#contact">联系商务</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="value">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">产品价值</span>
+      <h2 class="section-title">不只是工具，<br/>而是一套可复用的求职方法</h2>
+      <p class="section-desc">同样的时间，别人在刷岗位，你在用 AI 做选择；别人在改简历，你在准备面试。</p>
+    </div>
+    <div class="mini-grid">
+      <div class="mini-card value-card reveal"><h4>⏱️ 节省大量时间</h4><p>自动搜索、去重、初筛、材料生成，把重复劳动还给你。</p></div>
+      <div class="mini-card value-card reveal"><h4>🎯 提升投递质量</h4><p>每个岗位都有匹配分和定制材料，减少无效海投。</p></div>
+      <div class="mini-card value-card reveal"><h4>🔔 不错过关键机会</h4><p>投递状态、面试提醒、周期跟进自动管理。</p></div>
+      <div class="mini-card value-card reveal"><h4>🔐 数据本地化</h4><p>简历、Cookie、投递记录和生成文件默认保存在本机。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section pt0">
+  <div class="container">
+    <div class="section-head center reveal">
+      <span class="badge">适用方向</span>
+      <h2 class="section-title">它适合什么样的求职者？</h2>
+      <p class="section-desc">只要你的求职过程涉及多平台搜索、简历定制、投递跟进和面试准备，JobAgent 都能发挥作用。</p>
+    </div>
+    <div class="mini-grid industry-grid">
+      <div class="mini-card industry-card reveal"><div class="icon">🏭</div><h4>智能制造 / 自动化</h4><p>AMR、AGV、设备工程师等岗位</p></div>
+      <div class="mini-card industry-card reveal"><div class="icon">🔋</div><h4>新能源 / 半导体</h4><p>设备、工艺、厂务、研发岗位</p></div>
+      <div class="mini-card industry-card reveal"><div class="icon">💻</div><h4>互联网 / 软件</h4><p>前后端、算法、测试、产品岗位</p></div>
+      <div class="mini-card industry-card reveal"><div class="icon">💊</div><h4>医药 / 高端制造</h4><p>设备运维、自动化项目、质量管理</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section pt0">
+  <div class="container">
+    <div class="trust-grid">
+      <div class="trust-card reveal"><div class="metric grad">1300+</div><p>自动化测试通过，功能迭代有保障</p></div>
+      <div class="trust-card reveal"><div class="metric grad">84.4%</div><p>代码覆盖率，核心链路持续验证</p></div>
+      <div class="trust-card reveal"><div class="metric grad">Local-first</div><p>本地数据优先，不强制上传云端</p></div>
+      <div class="trust-card reveal"><div class="metric grad">17 个 CLI</div><p>既能用界面，也能脚本化自动化</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="start">
+  <div class="container">
+    <div class="section-head center reveal">
+      <span class="badge">快速开始</span>
+      <h2 class="section-title">今天就能开始，<br/><span class="grad">让 AI 接管重复劳动</span></h2>
+      <p class="section-desc">无需复杂部署，本地启动，浏览器访问，即可进入你的求职工作台。</p>
+    </div>
+    <div class="quick-grid">
+      <div class="quick-panel reveal">
+        <h3>🚀 三步开启</h3>
+        <p>安装项目 → 配置大模型密钥 → 启动本地工作台。然后上传简历、设置方向，JobAgent 开始为你工作。</p>
+        <div class="code-block">
+          <button class="copy-btn" type="button" aria-label="复制安装命令">复制</button>
+          <pre><code><span class="cmt"># 1. 安装</span>
+<span class="cmd">cd agent-core</span>
+<span class="cmd">pip install -e .</span>
+<span class="cmt"># 2. 配置 DeepSeek API Key</span>
+<span class="cmd">setx DEEPSEEK_API_KEY "sk-..."</span>
+<span class="cmt"># 3. 启动工作台</span>
+<span class="cmd">job-agent serve</span>
+<span class="cmt"># 打开 http://localhost:8765</span></code></pre>
+        </div>
+      </div>
+      <div class="quick-panel reveal">
+        <h3>💬 也可直接用对话模式</h3>
+        <p>不想记命令？直接和 JobAgent 聊天，自然语言就能搜岗位、看投递、定制简历、评估 Offer。</p>
+        <div class="code-block">
+          <button class="copy-btn" type="button" aria-label="复制对话命令">复制</button>
+          <pre><code><span class="cmd">job-agent chat</span>
+<span class="cmt"># 你可以说：</span>
+<span class="cmd">“搜一下常州的自动化岗位”</span>
+<span class="cmd">“帮我看看投了哪些公司”</span>
+<span class="cmd">“给这个岗位定制一份简历”</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section tint" id="pricing">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">商业化合作</span>
+      <h2 class="section-title">选择适合你的方案</h2>
+      <p class="section-desc">个人使用、职业辅导、企业级私有化，均可按需定制。价格与交付方式请通过商务渠道确认。</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card reveal">
+        <h3>个人版</h3>
+        <div class="price">按需<small>咨询</small></div>
+        <ul>
+          <li>8 大招聘平台聚合搜索</li><li>AI 匹配打分与筛选</li><li>定制简历 + HR 消息</li><li>投递追踪与提醒</li><li>文字模拟面试</li><li>本地数据存储</li>
+        </ul>
+        <a class="btn btn-ghost" href="#contact">获取方案</a>
+      </div>
+      <div class="pricing-card hot reveal">
+        <span class="hotbadge">推荐</span>
+        <h3>专业版</h3>
+        <div class="price">按需<small>咨询</small></div>
+        <ul>
+          <li>包含个人版全部能力</li><li>实时语音模拟面试</li><li>Offer 评估与多 Offer 对比</li><li>薪资谈判策略</li><li>定时搜岗 / 无人值守</li><li>多方向多简历配置</li><li>优先技术支持</li>
+        </ul>
+        <a class="btn btn-primary" href="#contact">获取方案</a>
+      </div>
+      <div class="pricing-card reveal">
+        <h3>企业与团队版</h3>
+        <div class="price">定制<small>报价</small></div>
+        <ul>
+          <li>私有化或本地部署咨询</li><li>企业招聘源按需接入</li><li>定制开发与系统集成</li><li>实施、培训与技术支持</li>
+        </ul>
+        <a class="btn btn-ghost" href="#contact">联系我们</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="faq">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="badge">常见问题</span>
+      <h2 class="section-title">你可能关心的问题</h2>
+    </div>
+    <div class="faq-wrap">
+      <div class="faq-item reveal"><details name="faq"><summary>JobAgent 安全吗？我的简历会泄露吗？</summary><p>JobAgent 默认本地运行，简历、Cookie、投递记录和生成文件都存在本机 SQLite 与目录中，不强制上传云端。API Key 通过环境变量配置。</p></details></div>
+      <div class="faq-item reveal"><details name="faq"><summary>需要哪些平台账号？</summary><p>BOSS直聘、猎聘、智联需要对应的登录态；腾讯、网易、比亚迪、北方华创、长飞光纤等公开职位源无需单独账号。</p></details></div>
+      <div class="faq-item reveal"><details name="faq"><summary>适合应届生吗？还是只适合有经验的人？</summary><p>都适合。JobAgent 根据你的实际简历与目标岗位进行匹配和定制，应届生和有经验求职者都可以使用。</p></details></div>
+      <div class="faq-item reveal"><details name="faq"><summary>可以做成私有化部署吗？</summary><p>可以。企业和团队版支持本地/私有化部署咨询、招聘源按需接入、定制开发与系统集成。</p></details></div>
+      <div class="faq-item reveal"><details name="faq"><summary>除了界面，能自动化运行吗？</summary><p>可以。内置 17 个 CLI 命令，支持搜索、匹配、材料生成、投递追踪、模拟面试、定时任务等自动化操作。</p></details></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="contact">
+  <div class="container">
+    <div class="cta-box reveal">
+      <h2>别让好机会输在“没时间准备”上</h2>
+      <p>现在开始，让 JobAgent 帮你自动搜岗、精准匹配、定制简历、追踪投递、准备面试，把精力留给真正重要的事。</p>
+      <div class="hero-actions" style="justify-content:center;margin-bottom:0;position:relative;z-index:1">
+        <a class="btn btn-primary btn-lg" href="#start">立即免费体验</a>
+        <a class="btn btn-ghost btn-lg" href="#pricing">查看合作方案</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <span class="logo-mark" style="width:34px;height:34px;font-size:16px" aria-hidden="true">J</span>
+      <div><strong>JobAgent · AI 求职助手</strong><small>从搜岗到 Offer 一站式搞定</small></div>
+    </div>
+    <nav class="footer-links" aria-label="页脚导航">
+      <a href="#features">核心能力</a>
+      <a href="#workflow">使用流程</a>
+      <a href="#pricing">价格方案</a>
+      <a href="#faq">常见问题</a>
+      <a href="#start">快速开始</a>
+    </nav>
+  </div>
+  <div class="container footer-bottom">
+    <span>本地优先 · 数据自主 · 可审计 · 可扩展</span>
+    <span>© <span id="footerYear">2025</span> JobAgent · 保留所有权利</span>
+  </div>
+</footer>
+
+<a class="mcta" id="mcta" href="#start">🚀 立即免费体验</a>
+<button class="totop" id="toTop" aria-label="回到顶部">↑</button>
+
+<script>
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // 移动端菜单
+  const menuBtn = document.getElementById('menuBtn');
+  const mobileMenu = document.getElementById('mobileMenu');
+  const setMenu = (open) => {
+    mobileMenu.classList.toggle('open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+    menuBtn.textContent = open ? '✕' : '☰';
+    menuBtn.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+  };
+  menuBtn.addEventListener('click', () => setMenu(!mobileMenu.classList.contains('open')));
+  mobileMenu.querySelectorAll('a').forEach(a => a.addEventListener('click', () => setMenu(false)));
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape' && mobileMenu.classList.contains('open')) { setMenu(false); menuBtn.focus(); }
+  });
+
+  // 入场动画：只增强，不阻塞内容。html.js 下先隐藏，进入视口后错峰播放。
+  const revEls = [...document.querySelectorAll('.reveal')];
+  revEls.forEach((el, i) => el.style.setProperty('--d', `${Math.min(i % 12, 11) * 45}ms`));
+  const showAllRev = () => revEls.forEach(el => el.classList.add('in-view'));
+  if (reduceMotion || !('IntersectionObserver' in window)) showAllRev();
+  else {
+    const revIO = new IntersectionObserver((entries, obs) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('in-view'); obs.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    revEls.forEach(el => revIO.observe(el));
+  }
+
+  // 数字滚动（数据最后一位始终保留在标记中，禁用 JS / 截图早于动画完成时也不缺内容；
+  //   仅在统计区进入视口时启动，避免页面加载后数字早已定格）
+  const runCount = el => {
+    const target = parseFloat(el.dataset.count);
+    const suffix = el.dataset.suffix || '';
+    if (reduceMotion || Number.isNaN(target)) return;
+    const dur = 800, t0 = performance.now();
+    const fmt = n => Math.round(n).toLocaleString('zh-CN');
+    const step = now => {
+      const p = Math.min(1, (now - t0) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = fmt(target * eased) + suffix;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  const counters = [...document.querySelectorAll('.count')];
+  if (reduceMotion || !('IntersectionObserver' in window)) counters.forEach(runCount);
+  else {
+    const cntIO = new IntersectionObserver((entries, obs) => {
+      entries.forEach(e => { if (e.isIntersecting) { runCount(e.target); obs.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -10% 0px' });
+    counters.forEach(c => cntIO.observe(c));
+  }
+
+  // 导航滚动高亮
+  const spyLinks = [...document.querySelectorAll('.nav-links a[href^="#"]')];
+  const spySections = spyLinks.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const spy = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        spyLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+      }
+    });
+  }, { rootMargin: '-35% 0px -60% 0px' });
+  spySections.forEach(s => spy.observe(s));
+
+  // 代码复制
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = btn.closest('.code-block').querySelector('code');
+      let ok = true;
+      try {
+        await navigator.clipboard.writeText(code.innerText);
+      } catch {
+        ok = false;
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = code.innerText;
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          ok = true;
+        } catch {}
+      }
+      if (ok) {
+        const old = btn.textContent;
+        btn.textContent = '已复制 ✓';
+        btn.classList.add('ok');
+        setTimeout(() => { btn.textContent = old; btn.classList.remove('ok'); }, 1500);
+      }
+    });
+  });
+
+  // 滚动进度条 + 导航强化 + 回到顶部 + 移动端底部 CTA
+  const progressBar = document.getElementById('progressBar');
+  const navbar = document.getElementById('navbar');
+  const toTop = document.getElementById('toTop');
+  const mcta = document.getElementById('mcta');
+  const contactSec = document.getElementById('contact');
+  let ticking = false;
+  const onScroll = () => {
+    const doc = document.documentElement;
+    const max = doc.scrollHeight - doc.clientHeight;
+    progressBar.style.width = (max > 0 ? (doc.scrollTop / max) * 100 : 0) + '%';
+    navbar.classList.toggle('scrolled', doc.scrollTop > 10);
+    toTop.classList.toggle('show', doc.scrollTop > 700);
+    if (mcta && contactSec) {
+      // 离开首屏后显示；底部转化区进入视口即隐藏，避免重复 CTA
+      const show = doc.scrollTop > 520 && contactSec.getBoundingClientRect().top > innerHeight * 0.92;
+      mcta.classList.toggle('show', show);
+      document.body.classList.toggle('mcta-on', show);
+    }
+    ticking = false;
+  };
+  addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+  toTop.addEventListener('click', () => scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' }));
+
+  // 首屏标题轮换（kinetic typography）
+  const rotator = document.getElementById('rotator');
+  if (rotator && !reduceMotion) {
+    const words = JSON.parse(rotator.dataset.words);
+    let wi = 0;
+    setInterval(() => {
+      wi = (wi + 1) % words.length;
+      rotator.textContent = words[wi];
+      rotator.classList.remove('swap'); void rotator.offsetWidth; rotator.classList.add('swap');
+    }, 3200);
+  }
+
+  // 工作台 URL 打字效果
+  const urlEl = document.getElementById('mockUrl');
+  const brandText = 'JobAgent · 求职工作台';
+  if (!reduceMotion) {
+    urlEl.textContent = '';
+    let ci = 0;
+    const t = setInterval(() => {
+      urlEl.textContent = brandText.slice(0, ++ci);
+      if (ci >= brandText.length) clearInterval(t);
+    }, 52);
+  }
+
+  // 工作台 Tab 演示轮播（可点击 + 键盘操作，roving tabindex）
+  const tabs = [...document.querySelectorAll('.mock-tab')];
+  const panes = [...document.querySelectorAll('.mock-pane')];
+  let cur = 0, tabTimer = null;
+  const showPane = i => {
+    cur = (i + tabs.length) % tabs.length;
+    tabs.forEach((t, j) => {
+      const on = j === cur;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+    });
+    panes.forEach((p, j) => p.classList.toggle('active', j === cur));
+  };
+  let tabPaused = false; // 用户手动操作后停止自动轮播（WCAG 2.2.2 暂停/停止/隐藏）
+  const stopTabs = () => { clearInterval(tabTimer); tabTimer = null; };
+  const startTabs = () => {
+    if (reduceMotion || tabPaused) return;
+    clearInterval(tabTimer);
+    tabTimer = setInterval(() => showPane(cur + 1), 4200);
+  };
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => { tabPaused = true; stopTabs(); showPane(i); });
+    t.addEventListener('keydown', e => {
+      let next = null;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = cur + 1;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = cur - 1;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      if (next !== null) {
+        e.preventDefault();
+        tabPaused = true;
+        stopTabs();
+        showPane(next);
+        tabs[cur].focus();
+      }
+    });
+  });
+  showPane(0);
+  startTabs();
+
+  // 对话演示循环
+  const chatLog = document.getElementById('chatLog');
+  const exchanges = [
+    { u: '搜一下常州的自动化岗位', a: '找到 26 个岗位，已按匹配度排序：AMR 工程师 94 分 · 南通，设备工程师 88 分 · 常州…' },
+    { u: '给这岗位定制一份简历', a: '已生成《AMR 工程师_定制简历.docx》，强化 3 处关键词，请审阅后投递。' },
+    { u: '看看投了哪些公司', a: '当前投递 4 家：2 家已读、1 家约面（明天 15:00）、1 家 Offer 待评估。' }
+  ];
+  const bubble = (cls, text) => {
+    const d = document.createElement('div');
+    d.className = 'msg ' + cls;
+    if (text) d.textContent = text;
+    chatLog.appendChild(d);
+    return d;
+  };
+  const renderChat = idx => {
+    chatLog.innerHTML = '';
+    const ex = exchanges[idx];
+    bubble('user', ex.u);
+    const typing = bubble('typing', '');
+    typing.innerHTML = '<span class="typing-i"><i></i><i></i><i></i></span>';
+    setTimeout(() => { typing.remove(); bubble('ai', ex.a); }, 1050);
+  };
+  let chatIdx = 0;
+  if (reduceMotion) { renderChat(0); }
+  else {
+    renderChat(0);
+    setInterval(() => { chatIdx = (chatIdx + 1) % exchanges.length; renderChat(chatIdx); }, 5600);
+  }
+
+  // 页脚年份
+  const footerYear = document.getElementById('footerYear');
+  if (footerYear) footerYear.textContent = new Date().getFullYear();
+</script>
+</body>
+</html>
