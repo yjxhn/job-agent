@@ -8,6 +8,8 @@ operations are mocked — no real daemon process is started.
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from agent_core.server import daemon
 
 
@@ -100,6 +102,7 @@ def test_ensure_dashboard_win32_already_running(monkeypatch):
     assert kernel32.closed == [123]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific creation flags behavior")
 def test_ensure_dashboard_win32_stale_pid_starts(monkeypatch):
     class _Kernel32:
         def OpenProcess(self, access, inherit, pid):
