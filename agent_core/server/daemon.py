@@ -43,8 +43,10 @@ def _ensure_dashboard(port: int = 8765, db_path: str = "data/agent.db") -> bool:
     cmd = [sys.executable, "-m", "agent_core.server.serve", "--port", str(port)]
     creation_flags = 0
     if sys.platform == "win32":
-        creation_flags = (
-            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+        # getattr guards: these Windows-only constants do not exist on POSIX,
+        # and tests that monkeypatch sys.platform="win32" run on Linux runners.
+        creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
+            subprocess, "DETACHED_PROCESS", 0
         )
     # 2026-08-12: daemon 日志接 data/dashboard.log（原来 DEVNULL 导致实时语音
     # 等后端错误完全不可见，排查靠猜）。句柄由子进程持有，勿 close。

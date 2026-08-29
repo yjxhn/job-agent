@@ -10,7 +10,7 @@ import logging
 import os
 import shutil
 import sys
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -318,7 +318,9 @@ def test_run_scheduled_search_quiet_hours_wrapping_skip(tmp_path, monkeypatch, c
         def now(cls, tz=None):
             if tz is not None:
                 return real_datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-            return real_datetime(2026, 1, 1, 23, 0, tzinfo=timezone(timedelta(hours=8)))
+            # Host-timezone agnostic: pick 23:00 in the *local* clock so the
+            # [23,8] wrapping range matches on UTC and +08:00 runners alike.
+            return real_datetime.now().replace(hour=23, minute=0, second=0, microsecond=0)
 
     monkeypatch.setattr(S, "datetime", FakeDatetime)
     cfg = _scheduler_config(quiet_hours=[23, 8])

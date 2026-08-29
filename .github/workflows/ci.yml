@@ -39,4 +39,8 @@ jobs:
         run: python scripts/check_llm_naming.py
 
       - name: Run tests with coverage
-        run: python -m pytest -q --cov=agent_core --cov-report=term --cov-report=xml --cov-fail-under=70
+        env:
+          DEEPSEEK_API_KEY: dummy-key  # tests read config.api_key (env-backed); any non-empty value works
+        run: |
+          mkdir -p resumes && echo "test resume" > resumes/example_resume.txt
+          python -m pytest -q --cov=agent_core --cov-report=term --cov-report=xml --cov-fail-under=70
