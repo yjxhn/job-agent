@@ -1,8 +1,7 @@
 # 求职 AI Agent
 
+[![CI](https://github.com/yjxhn/job-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yjxhn/job-agent/actions)
 ![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
-![pytest](https://img.shields.io/badge/pytest-1312%20passed-2ea44f.svg)
-![coverage](https://img.shields.io/badge/coverage-84.4%25-brightgreen.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 自动搜职位→人工筛选→LLM精排匹配→简历定制→投递追踪的智能求职助手。
