@@ -1902,7 +1902,7 @@ function _renderResumes(items,def){
   if(!tb)return;
   if(!items.length){
     tb.innerHTML='';
-    if(empty){empty.style.display='block';empty.textContent='📭 暂无简历，点击上方「文件上传」添加'}
+    if(empty){empty.style.display='block';empty.innerHTML='<div class="empty-state" style="padding:26px 16px"><span class="empty-ico">📭</span><div class="empty-title">暂无简历</div><div class="empty-hint">点击上方「文件上传」添加。</div></div>'}
     return;
   }
   if(empty){empty.style.display='none'}

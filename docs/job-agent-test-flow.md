@@ -322,7 +322,7 @@ python -m pytest tests/test_liepin.py tests/test_zhilian.py -q   # 平台(需 Pl
 
 - 342 岗位 / 12 感兴趣 / 330 不合适 / 12 匹配 / 3 投递（均为 HR已读）
 - generated_files 21 行:tailor 6 / interview_prep 6 / cover_letter 3 / offer_eval 2 / offer_compare 1 / salary_advice 1 / mock_interview 2
-- output/ 仅保留正式产物;苏州迈为 realtime_mock(.md + _assessment.txt)为历史实时语音记录
+- output/ 仅保留正式产物；某厂商 realtime_mock(.md + _assessment.txt)为历史实时语音记录
 - 测试期间产生的临时 output(测试公司/某科技公司等)已归档到 `data/log_archive/output_test_artifacts_20260816/`,生成的 DB 索引行已同步清理
 - 1 份薪资策略已保存到服务端 output/，localStorage 另存历史
 

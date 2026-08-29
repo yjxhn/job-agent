@@ -418,7 +418,7 @@ def test_match_bank_question_exact_and_paraphrase():
     qs = ["你在这个项目中负责AMR调度系统与WMS/MES的对接，具体如何保证接口联调一次成功率？"]
     assert ip._match_bank_question("第一题：" + qs[0], qs) == 0
     paraphrased = (
-        "你在紫龙工厂厂内物流自动化项目（一期）中负责AMR调度系统与WMS/MES的对接，"
+        "你在xx工厂厂内物流自动化项目（一期）中负责AMR调度系统与WMS/MES的对接，"
         "具体如何保证接口联调一次成功率？"
     )
     assert ip._match_bank_question(paraphrased, qs) == 0

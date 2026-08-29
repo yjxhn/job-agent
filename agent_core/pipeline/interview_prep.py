@@ -568,7 +568,7 @@ def _match_bank_question(reply: str, questions: list[str]) -> int:
     """Return index of the bank question asked in reply, or -1.
 
     优先做归一化后的全文包含；失败时用最长公共子串兜底（LLM 偶尔改写题目，
-    如把“你在这个项目中负责”写成“你在紫龙工厂……中负责”）。
+    如把“你在这个项目中负责”写成“你在xx工厂……中负责”）。
     """
     rn = _normalize_bank_text(reply)
     if not rn:
