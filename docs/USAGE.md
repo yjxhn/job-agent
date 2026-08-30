@@ -28,6 +28,8 @@ pip install -e .
 playwright install chromium
 ```
 
+> **任意目录运行**（2026-08-30 起）：`job-agent` 已锚定项目根——从任何 cwd 启动都会自动定位 `config.yaml` / `data/agent.db` / `data/agent.log`，不再依赖「先 cd 到项目目录」。若此前出现 `ModuleNotFoundError: No module named 'agent_core'`，多为 editable 安装路径失效（finder 指向旧路径），在项目根重新 `pip install -e .` 即可。
+
 ### 设置 API Key
 
 项目使用 DeepSeek 作为 LLM（通过 OpenAI 兼容端点），API key 通过环境变量设置：
@@ -825,6 +827,7 @@ job-agent pipeline --stages search,filter,match
 | 模拟面试记录（实时语音） | `output/<公司>_<岗位>_realtime_mock.md` + `_realtime_mock_assessment.txt` |
 | 调度状态 | `data/scheduler_state.json` |
 | 测试证据 / 截图 / 音频 | `data/log_archive/`（按测试批次归档，勿删） |
+| 宣传片 | `data/log_archive/promo_20260829/`（`jobagent_ad_30s.mp4` 最终成片 + `wan3_ad/` 6 镜头源 + `qwen_bg.png` 概念背景；生成脚本 `scripts/wan3_ad_script.py` 等 5 个本地专用，含 API key 已 gitignore） |
 
 ---
 
@@ -988,4 +991,5 @@ python scripts/check_llm_naming.py
   - `docs/job-agent-test-flow.md` — 完整测试 SOP；`docs/retrospective-2026-08-16-mock-interview.md` — 模拟面试专项复盘
 - **与代码不符之处**：已按 2026-08-16 代码现状订正；历史文档若仍写「schema v11」「模拟面试评估只存 json」「download 用 session_id」均为旧信息。
 - **2026-08-29 整理**：清理项目缓存与调试残留（`__pycache__`/`.mypy_cache`/`.pytest_cache`/`.ruff_cache`/`.playwright-mcp`/空 `unused/`）；删除一次性调试脚本 `scripts/dev/_query_draft.py`；`website/index.html` 营销页纳入版本控制（.gitignore 加例外）；README/docs 索引同步区分公开文档与内部 gitignored 文档；本手册「运行测试」补充 `resumes/` 非空的前置要求。`data/log_archive/`（95MB 历史测试证据）与 `data/backups/` 按既有约定保留。
+- **2026-08-30 两次整理**：①路径锚定修复（CLI/serve/daemon 任意目录可用，见「安装」注），全量测试通过，推送 `a81731b`；②宣传片产物归档到 `data/log_archive/promo_20260829/`，弃用测试视频已清理，5 个生成脚本（含 API key）gitignore 本地专用。
 - **相关复盘**：`docs/retrospective-2026-08-16-mock-interview.md`（模拟面试）；`docs/retrospective-2026-08-16-search-audit.md`（职位搜索）。
