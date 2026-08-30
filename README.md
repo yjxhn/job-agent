@@ -6,6 +6,18 @@
 
 自动搜职位→人工筛选→LLM精排匹配→简历定制→投递追踪的智能求职助手。
 
+## 界面预览（Dashboard）
+
+Web Dashboard（`job-agent serve` → http://localhost:8765），10 个 Tab 覆盖求职全流程：
+
+<img src="docs/screenshots/review-tab.png" alt="人工初筛 tab：多平台岗位列表 + 🌟/❌ 标记" width="800">
+
+*人工初筛：多平台并发搜回的岗位，标记 🌟想投递 / ❌不合适*
+
+<img src="docs/screenshots/match-tab.png" alt="Agent 智能匹配 tab：LLM 精排评分 + 缺口分析" width="800">
+
+*Agent 智能匹配：LLM 精排评分（百分制）+ 主要缺口分析，可校准反馈与批量生成求职材料*
+
 ## 项目简介
 
 求职 AI Agent（包名 `agent_core`）是一个自动化求职工具，从职位搜索到投递追踪全流程覆盖。支持多平台并发搜索、跨平台去重、人工筛选、LLM 精排匹配、简历定制和投递状态追踪。底层使用 DS 作为 LLM（通过 `DEEPSEEK_API_KEY` 环境变量配置）。
