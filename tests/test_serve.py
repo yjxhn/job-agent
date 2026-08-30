@@ -21,7 +21,11 @@ def test_serve_handler_instantiation():
     assert hasattr(serve.Handler, "db_path")
     assert hasattr(serve.Handler, "do_GET")
     assert hasattr(serve.Handler, "_api_results")
-    assert serve.Handler.db_path == "data/agent.db"
+    # 锚定项目根后为绝对路径 (2026-08-30); 兼容检查仍指向 data/agent.db
+    # 锚定项目根后为绝对路径 (2026-08-30); 兼容检查仍指向 data/agent.db
+    import os as _os
+
+    assert _os.path.normpath(serve.Handler.db_path).endswith(_os.path.normpath("data/agent.db"))
 
 
 def test_serve_handler_sets_db_path(tmp_path):

@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from agent_core.config import project_root_anchor
 from agent_core.server.daemon import _ensure_dashboard as _ensure_dashboard  # noqa: F401
 from agent_core.server.daemon import _stop_dashboard
 from agent_core.server.dashboard_html import DOCS_HTML, HTML, OPENAPI_SPEC
@@ -388,7 +389,9 @@ def _cached_all_platforms() -> set[str]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    db_path = "data/agent.db"
+    # 锚定项目根: 从任意 cwd 启动 serve 也能连对 data/agent.db.
+    # 此前为相对路径, 从项目根外部启动会把库错建到 cwd (2026-08-30 实测).
+    db_path = str(project_root_anchor() / "data" / "agent.db")
 
     def do_GET(self) -> None:  # noqa: N802
         """Route GET requests with auth check and global error handling."""

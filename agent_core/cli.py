@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import sys
 
 import typer
@@ -14,7 +13,7 @@ logger = logging.getLogger("agent_core")
 
 
 def _setup(config_path="config.yaml"):
-    from agent_core.config import load_config
+    from agent_core.config import load_config, project_root_anchor
     from agent_core.llm.providers import create_provider
     from agent_core.storage.db import get_db, migrate
 
@@ -22,18 +21,24 @@ def _setup(config_path="config.yaml"):
     if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
-    # Create log dir so first run (and CI, where data/ is absent) doesn't crash
-    os.makedirs("data", exist_ok=True)
+    # 锚定项目根: data/ 日志目录 + get_db 默认路径都指向项目根, 使 CLI 从任意
+    # cwd 运行也能读写正确的 data/agent.db 与 data/agent.log。
+    # 此前仅为相对 cwd 路径——从项目根外部运行会把 data/ 错建到 cwd(2026-08-30 实测)。
+    import os as _os
+
+    root = project_root_anchor()
+    data_dir = str(root / "data")
+    _os.makedirs(data_dir, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
-            logging.FileHandler("data/agent.log", encoding="utf-8"),
+            logging.FileHandler(str(root / "data" / "agent.log"), encoding="utf-8"),
             logging.StreamHandler(sys.stderr),
         ],
     )
     config = load_config(config_path)
-    db = get_db()
+    db = get_db(str(root / "data" / "agent.db"))
     migrate(db)
     # Tolerate missing API key: non-LLM commands (login, search, status) still
     # work without it. LLM commands call _require_provider() for a clear error.

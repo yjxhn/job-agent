@@ -65,3 +65,8 @@ AGENTS.md
 docs/development-plan.md
 docs/unfinished-work.md
 docs/retrospective-*.md
+
+# Promo video generation scripts (contain API keys, local-only)
+scripts/make_promo*.py
+scripts/compose_promo*.py
+scripts/wan3_ad_script.py

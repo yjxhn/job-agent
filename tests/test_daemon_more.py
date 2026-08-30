@@ -203,7 +203,7 @@ def test_stop_dashboard_win32_terminates(monkeypatch):
     assert kernel32.opened_access == 0x0001
     assert kernel32.terminated == [(456, 0)]
     assert kernel32.closed == [456]
-    assert unlinked == ["data/dashboard.pid"]
+    assert len(unlinked) == 1 and unlinked[0].endswith("dashboard.pid")
 
 
 def test_stop_dashboard_win32_already_stopped(monkeypatch):
@@ -222,7 +222,7 @@ def test_stop_dashboard_win32_already_stopped(monkeypatch):
     monkeypatch.setattr("agent_core.server.daemon.os.unlink", lambda p: unlinked.append(p))
 
     daemon._stop_dashboard()  # must not raise
-    assert unlinked == ["data/dashboard.pid"]
+    assert len(unlinked) == 1 and unlinked[0].endswith("dashboard.pid")
 
 
 def test_stop_dashboard_unix_process_not_found(monkeypatch):
@@ -238,7 +238,7 @@ def test_stop_dashboard_unix_process_not_found(monkeypatch):
     monkeypatch.setattr("agent_core.server.daemon.os.unlink", lambda p: unlinked.append(p))
 
     daemon._stop_dashboard()  # must not raise
-    assert unlinked == ["data/dashboard.pid"]
+    assert len(unlinked) == 1 and unlinked[0].endswith("dashboard.pid")
 
 
 def test_stop_dashboard_cleanup_unlink_error_swallowed(monkeypatch):

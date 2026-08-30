@@ -13,7 +13,25 @@ import sys
 logger = logging.getLogger(__name__)
 
 
-def _ensure_dashboard(port: int = 8765, db_path: str = "data/agent.db") -> bool:
+def _root_dir() -> str:
+    """项目根: 优先 cwd 有 config.yaml, 否则用包位置上两级.
+
+    纯路径推导, 不 import config / 不读 .env —— 避免 daemon 测试 mock
+    builtins.open 时被 config 模块级 _load_dotenv() 波及.
+    """
+    from pathlib import Path
+
+    cwd_cfg = Path.cwd() / "config.yaml"
+    if cwd_cfg.exists():
+        return str(Path.cwd())
+    pkg_root = Path(__file__).resolve().parent.parent.parent  # server/ -> agent_core/ -> 项目根
+    return str(pkg_root)
+
+
+def _ensure_dashboard(port: int = 8765, db_path: str = "") -> bool:
+    """确保 Dashboard 在运行. db_path 为空时锚定项目根 (data/agent.db)."""
+    if not db_path:
+        db_path = os.path.join(_root_dir(), "data", "agent.db")
     """Ensure dashboard process is running. Returns True if already running, False if started."""
     # Check pid file
     pid_path = os.path.join(os.path.dirname(db_path), "dashboard.pid")
@@ -72,7 +90,7 @@ def _ensure_dashboard(port: int = 8765, db_path: str = "data/agent.db") -> bool:
 
 def _stop_dashboard() -> None:
     """Stop the dashboard process by pid file."""
-    pid_path = "data/dashboard.pid"
+    pid_path = os.path.join(_root_dir(), "data", "dashboard.pid")
     if not os.path.exists(pid_path):
         logger.info("No dashboard pid file found (not running)")
         return

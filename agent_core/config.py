@@ -212,9 +212,46 @@ class Config(BaseModel):
         return os.environ.get(self.realtime.access_key_env, "")
 
 
+def project_root_anchor() -> Path:
+    """项目根目录锚点: 优先在 CWD 找 config.yaml, 否则回退到包位置的上两级.
+
+    让 CLI 从任意 cwd (项目子目录 / 项目根外部) 运行都能定位配置与数据文件.
+    注意: 本函数必须无副作用 (不读 .env / 不触发文件打开过多), 以便
+    daemon/serve 等路径辅助函数安全调用; 全局 _load_dotenv() 仅在模块
+    import 时执行一次, 与本函数无关.
+    """
+    # 1. cwd 有 config.yaml 直接用它
+    cwd_cfg = Path.cwd() / "config.yaml"
+    if cwd_cfg.exists():
+        return Path.cwd().resolve()
+    # 2. 回退: 包位置 (agent_core/config.py -> ../.. = 项目根)
+    pkg_root = Path(__file__).resolve().parent.parent
+    if (pkg_root / "config.yaml").exists():
+        return pkg_root
+    # 3. 最后: 从 cwd 向上找 config.yaml (兼容嵌套子目录运行)
+    for parent in Path.cwd().resolve().parents:
+        if (parent / "config.yaml").exists():
+            return parent
+    # 4. 都找不到: 用包位置 (会由 load_config 报 FileNotFoundError 给出清晰错误)
+    return pkg_root
+
+
 def load_config(config_path: str = "config.yaml") -> Config:
-    """Load configuration from YAML file and environment."""
+    """Load configuration from YAML file and environment.
+
+    ``config_path`` 支持三种情形:
+      - 绝对路径: 直接用
+      - 相对路径且存在于 cwd: 用 (原地 config.yaml / 测试传 tmp_path)
+      - 相对路径但 cwd 不存在: 用项目根锚点 (project_root_anchor) 解析,
+        使 CLI 从任意目录运行都能定位项目配置.
+    """
     path = Path(config_path)
+    if not path.is_absolute() and not path.exists():
+        # cwd 没有该文件 -> 锚定到项目根
+        anchor = project_root_anchor()
+        anchored = anchor / config_path
+        if anchored.exists():
+            path = anchored
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 

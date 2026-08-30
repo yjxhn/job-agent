@@ -43,7 +43,10 @@ platforms:
     rate_limit_seconds: 1
     search_max_pages: 2
 search:
-  directions: {}
+  directions:
+    default:
+      resume_file: resumes/简历.txt
+      keywords: []
   location: 全国
   min_salary: 6000
   exclude_keywords:

@@ -25,7 +25,7 @@ def test_stop_dashboard_stale_pid_file(monkeypatch):
     monkeypatch.setattr("builtins.open", lambda *_a, **_k: _FakeFile())
     monkeypatch.setattr("agent_core.server.daemon.os.unlink", lambda p: unlinked.append(p))
     daemon._stop_dashboard()
-    assert unlinked == ["data/dashboard.pid"]
+    assert len(unlinked) == 1 and unlinked[0].endswith("dashboard.pid")
 
 
 def test_ensure_dashboard_already_running(monkeypatch):
@@ -106,4 +106,4 @@ def test_stop_dashboard_unix_kill(monkeypatch):
     monkeypatch.setattr("agent_core.server.daemon.os.unlink", lambda p: unlinked.append(p))
     daemon._stop_dashboard()
     assert killed == [123]
-    assert unlinked == ["data/dashboard.pid"]
+    assert len(unlinked) == 1 and unlinked[0].endswith("dashboard.pid")
